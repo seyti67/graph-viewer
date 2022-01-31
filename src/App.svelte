@@ -1,5 +1,6 @@
 <script>
 import cytoscape from 'cytoscape';
+import Matrice from './matrice.svelte';
 
 let nodes;
 let edges;
@@ -41,26 +42,29 @@ nodes = cy.add([
   { group: 'nodes', data: { id: 'n1' }, position: { x: 200, y: 200 } },
 ]);
 
+console.log(nodes[0].edgeDistances);
+
 edges = cy.add([
 	{ group: 'edges', data: { id: 'e0', source: 'n1', target: 'n0' } },
 ])
 
 });
 
-let computeDistances = false;
 let edgeDistances = {};
 function update() {
 	edges.forEach(edge => {
 		const n = edge.connectedNodes().map(node => node.position());
 		edgeDistances[edge.id()] = Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2));
 	});
+	console.log(edgeDistances);
 }
-setInterval(update, 50)
+window.addEventListener('mouseup', update);
 </script>
 
 <main>
 	<div class="infos"></div>
 	<div id="cy"></div>
+	<Matrice/>
 </main>
 
 <style>
