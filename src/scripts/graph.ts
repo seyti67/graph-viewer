@@ -2,16 +2,24 @@ import cytoscape from 'cytoscape';
 
 export class Graph {
 	private cy: any;
-	private nodes: Array<any>;
-	private edges: Array<any>;
 	private width: number;
 	private heigth: number;
+	private nodes: Array<any> = [];
+	private edges: any;
+	private tmpEdge: any;
 
 	constructor (private cities: Array<string>) {
 		this.cy = cytoscape({
 			container: document.getElementById('cy'), // container to render in
 	
 			style: [ // the stylesheet for the graph
+			{
+				selector: '[label]',
+				style: {
+					'label': 'data(label)',
+				}
+			},
+
 			{
 				selector: 'node',
 				style: {
@@ -28,10 +36,17 @@ export class Graph {
 					'target-arrow-color': '#ccc',
 					'target-arrow-shape': 'triangle',
 					'curve-style': 'straight',
-					'label': 'data(label)',
 					'text-background-color': '#fff',
 					'text-background-opacity': 1,
 					'text-background-padding': 6,
+				}
+			},
+
+			{
+				selector: 'edge[id = "tmp"]',
+				style: {
+					'line-color': '#3d8faf',
+					'target-arrow-color': '#1e5870',
 				}
 			}
 			],
@@ -45,29 +60,27 @@ export class Graph {
 	}
 
 	public set(matrice: Array<Array<boolean>>): void {
-		const newNodes = [];
 		const newEdges = [];
 		matrice.forEach((row, i) => {
-			const position = {
-				x: Math.floor(50 + Math.random() * (this.width -100)),
-				y: Math.floor(50 + Math.random() * (this.heigth -100))
+			if (i >= this.nodes.length) { // if a node doesn't exist, create it
+				const position = {
+					x: Math.floor(50 + Math.random() * (this.width -100)),
+					y: Math.floor(50 + Math.random() * (this.heigth -100))
+				}
+				this.nodes.push(this.cy.add(
+					{ group: 'nodes', data: { id: 'n' + i, label: `${this.cities[i]} (${i})` }, position }
+				));
 			}
-			newNodes.push({ group: 'nodes', data: { id: 'n' + i, label: `${this.cities[i]} (${i})` }, position });
 			row.forEach((value, j) => {
 				if (value) {
 					newEdges.push({ group: 'edges', data: { id: 'e' + i + j, source: 'n' + i, target: 'n' + j } });
 				}
 			});
 		});
-		if (!this.nodes) {
-			this.cy.add(newNodes);
-		} else if (this.nodes.length !== newNodes.length) {
-			if (this.nodes.length < newNodes.length) {
-				this.cy.remove(this.nodes.slice(newNodes.length - this.nodes.length, -1));
-			} else {
-				this.cy.add(newNodes.slice(this.nodes.length, -1));
-			}
+		while(this.nodes.length > matrice.length) { // remove nodes that don't exist anymore
+			this.nodes.pop().remove();
 		}
+
 		if (this.edges) this.cy.remove(this.edges);
 		this.edges = this.cy.add(newEdges);
 
@@ -90,5 +103,17 @@ export class Graph {
 			edge.data('label', distance);
 		});
 		return distances;
+	}
+
+	public setTmpEdge(target: number, source: number): void {
+		if (this.tmpEdge) this.tmpEdge.remove();
+		this.tmpEdge = this.cy.add({ group: 'edges', data: { id: 'tmp', source: 'n' + source, target: 'n' + target } });
+
+		this.getDistances();
+	}
+
+	public removeTmpEdge(): void {
+		if (this.tmpEdge) this.tmpEdge.remove();
+		this.tmpEdge = null;
 	}
 }
