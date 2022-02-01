@@ -4,6 +4,8 @@ export class Graph {
 	private cy: any;
 	private nodes: Array<any>;
 	private edges: Array<any>;
+	private width: number;
+	private heigth: number;
 
 	constructor (private cities: Array<string>) {
 		this.cy = cytoscape({
@@ -27,6 +29,9 @@ export class Graph {
 					'target-arrow-shape': 'triangle',
 					'curve-style': 'straight',
 					'label': 'data(label)',
+					'text-background-color': '#fff',
+					'text-background-opacity': 1,
+					'text-background-padding': 6,
 				}
 			}
 			],
@@ -35,22 +40,33 @@ export class Graph {
 				rows: 1
 			}
 		});
+		this.width = this.cy.width();
+		this.heigth = this.cy.height();
 	}
 
 	public set(matrice: Array<Array<boolean>>): void {
 		const newNodes = [];
 		const newEdges = [];
 		matrice.forEach((row, i) => {
-			newNodes.push({ group: 'nodes', data: { id: 'n' + i, label: `${this.cities[i]} (${i})` }, position: { x: 50, y: 50 } });
+			const position = {
+				x: Math.floor(50 + Math.random() * (this.width -100)),
+				y: Math.floor(50 + Math.random() * (this.heigth -100))
+			}
+			newNodes.push({ group: 'nodes', data: { id: 'n' + i, label: `${this.cities[i]} (${i})` }, position });
 			row.forEach((value, j) => {
 				if (value) {
 					newEdges.push({ group: 'edges', data: { id: 'e' + i + j, source: 'n' + i, target: 'n' + j } });
 				}
 			});
 		});
-		if (!this.nodes || this.nodes.length !== newNodes.length) {
-			if (this.nodes) this.cy.remove(this.nodes);
-			this.nodes = this.cy.add(newNodes);
+		if (!this.nodes) {
+			this.cy.add(newNodes);
+		} else if (this.nodes.length !== newNodes.length) {
+			if (this.nodes.length < newNodes.length) {
+				this.cy.remove(this.nodes.slice(newNodes.length - this.nodes.length, -1));
+			} else {
+				this.cy.add(newNodes.slice(this.nodes.length, -1));
+			}
 		}
 		if (this.edges) this.cy.remove(this.edges);
 		this.edges = this.cy.add(newEdges);
@@ -59,6 +75,8 @@ export class Graph {
 	}
 
 	public getDistances(): Array<{ distance: number, path: Array<string> }> {
+		if (!this.edges) return [];
+
 		const distances = [];
 		this.edges.forEach((edge, i) => {
 			const nodes = edge.connectedNodes();

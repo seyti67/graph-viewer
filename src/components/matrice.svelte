@@ -3,15 +3,13 @@ import Checkbox from './checkbox.svelte';
 
 export let size = 2;
 export let grid: Array<Array<boolean>> = Array.from({ length: size }, () => Array.from({ length: size }, () => false));
+$: while(size !== grid.length) {
+	if (grid.length < size) grid.push([])
+	else if(grid.length > size) grid = grid.slice(0, grid.length - 1)
+}
 </script>
 
 <table class="matrice">
-	<tr>
-		<td/>
-		{#each Array(size) as _, x}
-			<td>{x}</td>
-		{/each}
-	</tr>
 	{#each Array(size) as _, y}
 		<tr>
 			<td>{y}</td>
@@ -20,6 +18,12 @@ export let grid: Array<Array<boolean>> = Array.from({ length: size }, () => Arra
 			{/each}
 		</tr>
 	{/each}
+	<tr>
+		<td/>
+		{#each Array(size) as _, x}
+			<td>{x}</td>
+		{/each}
+	</tr>
 </table>
 
 <style>
@@ -32,5 +36,8 @@ table {
 
 td {
 	padding: 0;
+	border: 1px solid black;
+	width: 1.5em;
+	height: 1.5em;
 }
 </style>
