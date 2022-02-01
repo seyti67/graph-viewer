@@ -1,10 +1,11 @@
-<script>
+<script lang="ts">
 import Checkbox from './checkbox.svelte';
 
-let size = 2;
+export let size = 2;
+export let grid: Array<Array<boolean>> = Array.from({ length: size }, () => Array.from({ length: size }, () => false));
 </script>
 
-<table>
+<table class="matrice">
 	<tr>
 		<td/>
 		{#each Array(size) as _, x}
@@ -15,7 +16,7 @@ let size = 2;
 		<tr>
 			<td>{y}</td>
 			{#each Array(size) as _, x}
-				<td> <Checkbox /> </td>
+				<td> <Checkbox bind:checked={grid[y][x]} on:change/> </td>
 			{/each}
 		</tr>
 	{/each}

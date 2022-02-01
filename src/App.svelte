@@ -1,75 +1,51 @@
-<script>
-import cytoscape from 'cytoscape';
-import Matrice from './matrice.svelte';
+<script lang="ts">
+import Matrice from './components/matrice.svelte';
+import { Graph } from './scripts/graph';
 
-let nodes;
-let edges;
-let cy;
-
+let graph: Graph;
+const cities = ['Paris', 'Strasbourg', 'Lille', 'Bordeaux', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens', 'Metz', 'Perpignan', 'Besancon', 'Orleans', 'Rouen', 'Caen', 'Nimes', 'Toulon', 'Poitiers', 'Montauban', 'Avignon', 'Ajaccio', 'Besancon', 'Limoges', 'Bordeaux', 'Lyon', 'Nantes', 'Paris', 'Lille', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens', 'Metz', 'Perpignan', 'Besancon', 'Orleans', 'Rouen', 'Caen', 'Nimes', 'Toulon', 'Poitiers', 'Montauban', 'Avignon', 'Ajaccio', 'Besancon', 'Limoges', 'Bordeaux', 'Lyon', 'Nantes', 'Paris', 'Lille', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens']
 window.addEventListener('load', () => {
-	cy = cytoscape({
-
-container: document.getElementById('cy'), // container to render in
-
-style: [ // the stylesheet for the graph
-  {
-	selector: 'node',
-	style: {
-	  'background-color': '#666',
-	  'label': 'data(id)'
-	}
-  },
-
-  {
-	selector: 'edge',
-	style: {
-	  'width': 3,
-	  'line-color': '#ccc',
-	  'curve-style': 'bezier'
-	}
-  }
-],
-
-layout: {
-  name: 'grid',
-  rows: 1
-}
-
+	graph = new Graph(cities);
+	graph.set([[false,true,false], [true,false,true], [true,false,true]])
+	updateDistances();
 });
 
-nodes = cy.add([
-  { group: 'nodes', data: { id: 'n0' }, position: { x: 100, y: 100 } },
-  { group: 'nodes', data: { id: 'n1' }, position: { x: 200, y: 200 } },
-]);
-
-console.log(nodes[0].edgeDistances);
-
-edges = cy.add([
-	{ group: 'edges', data: { id: 'e0', source: 'n1', target: 'n0' } },
-])
-
-});
-
-let edgeDistances = {};
-function update() {
-	edges.forEach(edge => {
-		const n = edge.connectedNodes().map(node => node.position());
-		edgeDistances[edge.id()] = Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2));
-	});
-	console.log(edgeDistances);
+let distances = [];
+function updateDistances() {
+	distances = graph.getDistances();
 }
-window.addEventListener('mouseup', update);
+window.addEventListener('mouseup', updateDistances);
+
+let grid;
+$: if(graph) graph.set(grid)
 </script>
 
 <main>
 	<div class="infos"></div>
 	<div id="cy"></div>
-	<Matrice/>
+	<Matrice bind:grid={grid} size={5}/>
+	<div class="result">
+		{#each distances as d}
+			<span><b>{d.path.join(' -> ')}</b> {d.distance}</span>
+		{/each}
+	</div>
 </main>
 
 <style>
 #cy {
-  height: 100vh;
-  width: 100vw;
+	height: 100vh;
+	width: 100vw;
+}
+.result {
+	position: absolute;
+	bottom: 0;
+	right: 0;
+	display: flex;
+	flex-direction: column;
+}
+:global(table.matrice) {
+	position: absolute;
+	top: 0;
+	right: 0;
 }
 </style>

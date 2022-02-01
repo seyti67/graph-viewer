@@ -1,5 +1,9 @@
+<script>
+export let checked = false;
+</script>
+
 <label>
-	<input type="checkbox" on:change/>
+	<input type="checkbox" on:change bind:checked={checked}/>
 	<div class="box"></div>
 </label>
 
