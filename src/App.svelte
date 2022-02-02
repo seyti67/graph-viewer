@@ -1,10 +1,13 @@
 <script lang="ts">
 import Matrix from './components/matrix.svelte';
 import ArrowLeft from './icons/arrow-left.svelte';
+import Range from './components/range.svelte';
 import { Graph } from './scripts/graph';
+import { findPath } from './scripts/path-finder';
 import { fly, fade } from 'svelte/transition';
 
 let show = true;
+const duration = 300;
 
 let graph: Graph;
 const cities = ['Paris', 'Strasbourg', 'Lille', 'Bordeaux', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens', 'Metz', 'Perpignan', 'Besancon', 'Orleans', 'Rouen', 'Caen', 'Nimes', 'Toulon', 'Poitiers', 'Montauban', 'Avignon', 'Ajaccio', 'Besancon', 'Limoges', 'Bordeaux', 'Lyon', 'Nantes', 'Paris', 'Lille', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens', 'Metz', 'Perpignan', 'Besancon', 'Orleans', 'Rouen', 'Caen', 'Nimes', 'Toulon', 'Poitiers', 'Montauban', 'Avignon', 'Ajaccio', 'Besancon', 'Limoges', 'Bordeaux', 'Lyon', 'Nantes', 'Paris', 'Lille', 'Marseille', 'Lyon', 'Toulouse', 'Nice', 'Nantes', 'Montpellier', 'Rennes', 'Le Havre', 'Reims', 'St-Etienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nancy', 'Aix-en-Provence', 'Brest', 'Le Mans', 'Limoges', 'Clermont-Ferrand', 'Amiens']
@@ -15,6 +18,7 @@ window.addEventListener('load', () => {
 
 let grid: Array<Array<boolean>>;
 let gridSize = 5;
+$: gridSize = Math.max(2, Math.min(gridSize, 10));
 $: if(graph) {
 	graph.set(grid);
 	updateDistances();
@@ -26,14 +30,18 @@ function updateDistances() {
 }
 window.addEventListener('mouseup', updateDistances);
 
-$: distances
-
 function hover(e: CustomEvent) {
 	if (e.detail.x === -1) graph.removeTmpEdge();
 	else graph.setTmpEdge(e.detail.x, e.detail.y);
 }
 
-const duration = 300;
+let pathStart = 0;
+let pathEnd = 0;
+
+let finder = undefined;
+function updateFinder() {
+	finder = findPath(distances, pathStart, pathEnd);
+}
 </script>
 
 <main>
@@ -43,19 +51,30 @@ const duration = 300;
 			<ArrowLeft />
 		</div>
 		{#if show}
-			<div class="inputs">
-				<button on:click={() => {gridSize--}}>-</button>
-				<input type="range" bind:value={gridSize} min="2" max="10" in:fly={{y:100, duration, delay:duration}} out:fade={{duration}}>
-				<button on:click={() => {gridSize++}}>+</button>
-			</div>
+			<Range bind:value={gridSize} min="2" max="10"/>
 			<div in:fly={{y:100, duration, delay:2*duration}} out:fade={{duration}} class="matrix-box">
 				<Matrix bind:grid={grid} size={gridSize} on:hover={hover}/>
 			</div>
+			
+			<h2>Find path</h2>
+			<select bind:value={pathStart} on:change={updateFinder}>
+				{#each Array(gridSize) as _, i}
+					<option value={i}>{cities[i]}</option>
+				{/each}
+			</select>
+			->
+			<select bind:value={pathEnd} on:change={updateFinder}>
+				{#each Array(gridSize) as _, i}
+					<option value={i}>{cities[i]}</option>
+				{/each}
+			</select>
+			<button on:click={() => {
+				console.log(finder.next());
+			}}>Find path</button>
 			<div class="result" in:fly={{y:100, duration, delay:3*duration}} out:fade={{duration}}>
-				
 				{#each distances as row, source}
 					{#each row as cell, target}
-						{#if cell !== -1}
+						{#if cell !== 0}
 							{cities[source]} -> {cities[target]} : {cell} <br/>
 						{/if}
 					{/each}
@@ -79,7 +98,7 @@ main, #cy {
 	padding-top: 4em;
 	background-color: #eee;
 	box-shadow: 0 0 1rem #0003;
-	width: 18rem;
+	width: 22rem;
 	height: 100%;
 	transform: translateX(calc(100% - 4em));
 	transition: .3s transform;
@@ -101,34 +120,16 @@ main, #cy {
 	transform: rotate(180deg);
 }
 
-.inputs {
-	display: flex;
-	font-size: 2em;
-}
-.inputs button {
-	outline: none;
-	border: none;
-	background: none;
-	font-size: 1em;
-	transform: translateY(-2px);
-	cursor: pointer;
-}
-.inputs input {
-	flex: 1;
-	border: none;
-	outline: none;
-}
-
 .result {
 	position: absolute;
-	bottom: 0;
+	bottom: 1em;
 	display: flex;
 	flex-direction: column;
 	overflow-y: auto;
 	max-height: 50%;
 }
 .matrix-box {
-	margin: auto;
+	margin: 1em auto;
 	width: min-content;
 }
 </style>

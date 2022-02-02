@@ -3,7 +3,7 @@ import { createEventDispatcher } from 'svelte';
 import { fly } from 'svelte/transition';
 import Checkbox from './checkbox.svelte';
 
-export let size;
+export let size: number;
 export let grid: Array<Array<boolean>> = Array.from({ length: size }, () => Array.from({ length: size }, () => false));
 
 $: grid.length = size;

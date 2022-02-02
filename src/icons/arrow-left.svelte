@@ -1,12 +1,13 @@
 <script>
 import { onMount } from 'svelte';
-
 import { draw } from 'svelte/transition';
 
 let show = false;
 onMount(() => {
 	show = true;
 });
+
+const duration = 400;
 </script>
 
 {#if show}
@@ -22,9 +23,9 @@ onMount(() => {
 	stroke-linejoin="round"
 	class="feather feather-arrow-left-circle"
 >
-	<circle cx="12" cy="12" r="10" in:draw={{duration: 1000}}/>
-	<polyline points="12 8 8 12 12 16" in:draw={{duration: 1000}}/>
-	<line x1="16" y1="12" x2="8" y2="12" in:draw={{duration: 1000}}/>
+	<line x1="16" y1="12" x2="8" y2="12" in:draw={{duration}}/>
+	<polyline points="12 8 8 12 12 16" in:draw={{duration, delay: duration}}/>
+	<circle cx="12" cy="12" r="10" in:draw={{duration, delay: 2*duration}}/>
 </svg>
 {/if}
 

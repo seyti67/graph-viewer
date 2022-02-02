@@ -7,6 +7,7 @@ export class Graph {
 	private nodes: Array<any> = [];
 	private edges: any;
 	private tmpEdge: any;
+	private path: Array<any> = [];
 
 	constructor (private cities: Array<string>) {
 		this.cy = cytoscape({
@@ -64,7 +65,7 @@ export class Graph {
 		matrix.forEach((row, i) => {
 			if (i >= this.nodes.length) { // if a node doesn't exist, create it
 				const position = {
-					x: Math.floor(50 + Math.random() * (this.width -100)*0.85), // *0.85 to pack the nodes a bit to the left
+					x: Math.floor(50 + Math.random() * (this.width -100)*0.8), // *0.8 to pack the nodes a bit to the left
 					y: Math.floor(50 + Math.random() * (this.heigth -100))
 				}
 				this.nodes.push(this.cy.add(
@@ -92,7 +93,7 @@ export class Graph {
 
 		const distances = [];
 		for (let i = 0; i < this.nodes.length; i++) {
-			distances[i] = Array(this.nodes.length).fill(-1);
+			distances[i] = Array(this.nodes.length).fill(0);
 		}
 		this.edges.forEach((edge, i) => {
 			const nodes = edge.connectedNodes();
@@ -117,5 +118,12 @@ export class Graph {
 	public removeTmpEdge(): void {
 		if (this.tmpEdge) this.tmpEdge.remove();
 		this.tmpEdge = null;
+	}
+
+	/* --- Path display --- */
+	public addPathStep(source: number, target: number): void {
+		this.path.push(this.cy.add(
+			{ group: 'edges', data: { id: 'p' + source + target, source: 'n' + source, target: 'n' + target } }
+		));
 	}
 }
