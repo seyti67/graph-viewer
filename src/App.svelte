@@ -1,5 +1,5 @@
 <script lang="ts">
-import Matrice from './components/matrice.svelte';
+import Matrix from './components/matrix.svelte';
 import ArrowLeft from './icons/arrow-left.svelte';
 import { Graph } from './scripts/graph';
 import { fly, fade } from 'svelte/transition';
@@ -13,18 +13,20 @@ window.addEventListener('load', () => {
 	updateDistances();
 });
 
-let grid;
+let grid: Array<Array<boolean>>;
 let gridSize = 5;
 $: if(graph) {
 	graph.set(grid);
 	updateDistances();
 }
 
-let distances = [];
+let distances = [[]];
 function updateDistances() {
 	distances = graph.getDistances();
 }
 window.addEventListener('mouseup', updateDistances);
+
+$: distances
 
 function hover(e: CustomEvent) {
 	if (e.detail.x === -1) graph.removeTmpEdge();
@@ -41,13 +43,22 @@ const duration = 300;
 			<ArrowLeft />
 		</div>
 		{#if show}
-			<input type="range" bind:value={gridSize} min="2" max="15" in:fly={{x:100, duration}} out:fade={{duration}}>
-			<div in:fly={{x:100, duration, delay:duration}} out:fade={{duration}}>
-				<Matrice bind:grid={grid} size={gridSize} on:hover={hover}/>
+			<div class="inputs">
+				<button on:click={() => {gridSize--}}>-</button>
+				<input type="range" bind:value={gridSize} min="2" max="10" in:fly={{y:100, duration, delay:duration}} out:fade={{duration}}>
+				<button on:click={() => {gridSize++}}>+</button>
 			</div>
-			<div class="result" in:fly={{x:100, duration, delay:2*duration}} out:fade={{duration}}>
-				{#each distances as d}
-					<span><b>{d.path.join(' -> ')}</b> {d.distance}</span>
+			<div in:fly={{y:100, duration, delay:2*duration}} out:fade={{duration}} class="matrix-box">
+				<Matrix bind:grid={grid} size={gridSize} on:hover={hover}/>
+			</div>
+			<div class="result" in:fly={{y:100, duration, delay:3*duration}} out:fade={{duration}}>
+				
+				{#each distances as row, source}
+					{#each row as cell, target}
+						{#if cell !== -1}
+							{cities[source]} -> {cities[target]} : {cell} <br/>
+						{/if}
+					{/each}
 				{/each}
 			</div>
 		{/if}
@@ -68,13 +79,12 @@ main, #cy {
 	padding-top: 4em;
 	background-color: #eee;
 	box-shadow: 0 0 1rem #0003;
-	min-width: 15rem;
+	width: 18rem;
 	height: 100%;
 	transform: translateX(calc(100% - 4em));
 	transition: .3s transform;
 }
 #sidebar.show {
-	min-width: 15rem;
 	transform: translateX(0);
 }
 .toggle-btn {
@@ -90,16 +100,35 @@ main, #cy {
 #sidebar.show .toggle-btn {
 	transform: rotate(180deg);
 }
+
+.inputs {
+	display: flex;
+	font-size: 2em;
+}
+.inputs button {
+	outline: none;
+	border: none;
+	background: none;
+	font-size: 1em;
+	transform: translateY(-2px);
+	cursor: pointer;
+}
+.inputs input {
+	flex: 1;
+	border: none;
+	outline: none;
+}
+
 .result {
+	position: absolute;
+	bottom: 0;
 	display: flex;
 	flex-direction: column;
 	overflow-y: auto;
-	max-height: 70%;
+	max-height: 50%;
 }
-.matrice-box {
-
-}
-.matrice-box input {
-	width: 10em;
+.matrix-box {
+	margin: auto;
+	width: min-content;
 }
 </style>

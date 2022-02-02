@@ -59,12 +59,12 @@ export class Graph {
 		this.heigth = this.cy.height();
 	}
 
-	public set(matrice: Array<Array<boolean>>): void {
+	public set(matrix: Array<Array<boolean>>): void {
 		const newEdges = [];
-		matrice.forEach((row, i) => {
+		matrix.forEach((row, i) => {
 			if (i >= this.nodes.length) { // if a node doesn't exist, create it
 				const position = {
-					x: Math.floor(50 + Math.random() * (this.width -100)),
+					x: Math.floor(50 + Math.random() * (this.width -100)*0.85), // *0.85 to pack the nodes a bit to the left
 					y: Math.floor(50 + Math.random() * (this.heigth -100))
 				}
 				this.nodes.push(this.cy.add(
@@ -77,7 +77,7 @@ export class Graph {
 				}
 			});
 		});
-		while(this.nodes.length > matrice.length) { // remove nodes that don't exist anymore
+		while(this.nodes.length > matrix.length) { // remove nodes that don't exist anymore
 			this.nodes.pop().remove();
 		}
 
@@ -87,19 +87,21 @@ export class Graph {
 		this.getDistances();
 	}
 
-	public getDistances(): Array<{ distance: number, path: Array<string> }> {
+	public getDistances(): Array<Array<number>> {
 		if (!this.edges) return [];
 
 		const distances = [];
+		for (let i = 0; i < this.nodes.length; i++) {
+			distances[i] = Array(this.nodes.length).fill(-1);
+		}
 		this.edges.forEach((edge, i) => {
 			const nodes = edge.connectedNodes();
 			const n = nodes.map(node => node.position());
 			if (nodes.length !== 2) return;
 			const distance = Math.round((Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2))) * 10) / 10;
-			distances.push({
-				distance,
-				path: [nodes[0].data('label'), nodes[1].data('label')]
-			});
+
+			const Ids = nodes.map(node => node.id().substring(1));
+			distances[parseInt(Ids[0])][parseInt(Ids[1])] = distance;
 			edge.data('label', distance);
 		});
 		return distances;

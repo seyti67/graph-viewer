@@ -1,7 +1,6 @@
 <script lang="ts">
 import { createEventDispatcher } from 'svelte';
-
-
+import { fly } from 'svelte/transition';
 import Checkbox from './checkbox.svelte';
 
 export let size;
@@ -25,35 +24,47 @@ function randomize() {
 }
 
 const dispatch = createEventDispatcher();
+const hoveredCell = { x: -1, y: -1 };
 function hover(x: number, y: number) {
 	dispatch('hover', { x, y });
+	hoveredCell.x = x;
+	hoveredCell.y = y;
 }
 </script>
 
-<table class="matrice">
-	{#each Array(size) as _, y}
-		<tr>
-			<th>{y}</th>
-			{#each Array(size) as _, x}
-				<td on:mouseleave={() => {hover(-1,-1)}} on:mouseenter={() => hover(x, y)}> <Checkbox bind:checked={grid[y][x]} on:change/> </td>
-			{/each}
-		</tr>
-	{/each}
+<table class="matrix" style="--size:{(size+1)*1.5}em">
 	<tr>
 		<th><img src="images/dice.png" alt="dice" class="dice" on:click={randomize}></th>
 		{#each Array(size) as _, x}
-			<th>{x}</th>
+			<th transition:fly={{y: -100, delay:50*x}} class:active={x === hoveredCell.x}>{x}</th>
 		{/each}
 	</tr>
+	{#each Array(size) as _, y (y)}
+		<tr>
+			<th transition:fly={{x: -100, delay:50*y}} class:active={y === hoveredCell.y}>{y}</th>
+			{#each Array(size) as _, x (x)}
+				<td
+					on:mouseleave={() => {hover(-1,-1)}}
+					on:mouseenter={() => hover(x, y)}
+					transition:fly={{x: x*10, y: y*10, duration:400, delay: 50*(x+y)}}
+				>
+					<Checkbox bind:checked={grid[y][x]} on:change/>
+				</td>
+			{/each}
+		</tr>
+	{/each}
 </table>
 
 <style>
 table {
-	overflow: hidden;
+	display: block;
 	line-height: 1;
 	text-align: center;
 	border-spacing: 0;
 	--higlight: #30a4e755;
+	max-width: var(--size);
+	max-height: var(--size);
+	transition: max-width, max-height, 0.5s;
 }
 
 td, th {
@@ -61,27 +72,17 @@ td, th {
 	width: 1.5em;
 	height: 1.5em;
 	position: relative;
-	
 }
-
-tr { transition: background-color .3s; }
-tr:hover {
-	background-color: var(--higlight);
-}
-td::after,
-th::after {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: -5000px;
-	height: 10000px;
-	width: 100%;
-	z-index: -1;
+th {
 	transition: background-color .3s;
 }
-td:hover::after,
-th:hover::after {
-	background-color: var(--higlight);
+th.active {
+	background: var(--higlight);
+}
+
+tr {
+	overflow: hidden;
+	transition: background-color .3s;
 }
 img.dice {
 	width: 1.5em;

@@ -137,6 +137,14 @@ var app = (function () {
     function set_input_value(input, value) {
         input.value = value == null ? '' : value;
     }
+    function set_style(node, key, value, important) {
+        if (value === null) {
+            node.style.removeProperty(key);
+        }
+        else {
+            node.style.setProperty(key, value, important ? 'important' : '');
+        }
+    }
     function toggle_class(element, name, toggle) {
         element.classList[toggle ? 'add' : 'remove'](name);
     }
@@ -504,6 +512,201 @@ var app = (function () {
             }
         };
     }
+    function create_bidirectional_transition(node, fn, params, intro) {
+        let config = fn(node, params);
+        let t = intro ? 0 : 1;
+        let running_program = null;
+        let pending_program = null;
+        let animation_name = null;
+        function clear_animation() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function init(program, duration) {
+            const d = (program.b - t);
+            duration *= Math.abs(d);
+            return {
+                a: t,
+                b: program.b,
+                d,
+                duration,
+                start: program.start,
+                end: program.start + duration,
+                group: program.group
+            };
+        }
+        function go(b) {
+            const { delay = 0, duration = 300, easing = identity$1, tick = noop$2, css } = config || null_transition;
+            const program = {
+                start: now$1() + delay,
+                b
+            };
+            if (!b) {
+                // @ts-ignore todo: improve typings
+                program.group = outros;
+                outros.r += 1;
+            }
+            if (running_program || pending_program) {
+                pending_program = program;
+            }
+            else {
+                // if this is an intro, and there's a delay, we need to do
+                // an initial tick and/or apply CSS animation immediately
+                if (css) {
+                    clear_animation();
+                    animation_name = create_rule(node, t, b, duration, delay, easing, css);
+                }
+                if (b)
+                    tick(0, 1);
+                running_program = init(program, duration);
+                add_render_callback(() => dispatch(node, b, 'start'));
+                loop(now => {
+                    if (pending_program && now > pending_program.start) {
+                        running_program = init(pending_program, duration);
+                        pending_program = null;
+                        dispatch(node, running_program.b, 'start');
+                        if (css) {
+                            clear_animation();
+                            animation_name = create_rule(node, t, running_program.b, running_program.duration, 0, easing, config.css);
+                        }
+                    }
+                    if (running_program) {
+                        if (now >= running_program.end) {
+                            tick(t = running_program.b, 1 - t);
+                            dispatch(node, running_program.b, 'end');
+                            if (!pending_program) {
+                                // we're done
+                                if (running_program.b) {
+                                    // intro — we can tidy up immediately
+                                    clear_animation();
+                                }
+                                else {
+                                    // outro — needs to be coordinated
+                                    if (!--running_program.group.r)
+                                        run_all(running_program.group.c);
+                                }
+                            }
+                            running_program = null;
+                        }
+                        else if (now >= running_program.start) {
+                            const p = now - running_program.start;
+                            t = running_program.a + running_program.d * easing(p / running_program.duration);
+                            tick(t, 1 - t);
+                        }
+                    }
+                    return !!(running_program || pending_program);
+                });
+            }
+        }
+        return {
+            run(b) {
+                if (is_function(config)) {
+                    wait().then(() => {
+                        // @ts-ignore
+                        config = config();
+                        go(b);
+                    });
+                }
+                else {
+                    go(b);
+                }
+            },
+            end() {
+                clear_animation();
+                running_program = pending_program = null;
+            }
+        };
+    }
+    function outro_and_destroy_block(block, lookup) {
+        transition_out(block, 1, 1, () => {
+            lookup.delete(block.key);
+        });
+    }
+    function update_keyed_each(old_blocks, dirty, get_key, dynamic, ctx, list, lookup, node, destroy, create_each_block, next, get_context) {
+        let o = old_blocks.length;
+        let n = list.length;
+        let i = o;
+        const old_indexes = {};
+        while (i--)
+            old_indexes[old_blocks[i].key] = i;
+        const new_blocks = [];
+        const new_lookup = new Map();
+        const deltas = new Map();
+        i = n;
+        while (i--) {
+            const child_ctx = get_context(ctx, list, i);
+            const key = get_key(child_ctx);
+            let block = lookup.get(key);
+            if (!block) {
+                block = create_each_block(key, child_ctx);
+                block.c();
+            }
+            else if (dynamic) {
+                block.p(child_ctx, dirty);
+            }
+            new_lookup.set(key, new_blocks[i] = block);
+            if (key in old_indexes)
+                deltas.set(key, Math.abs(i - old_indexes[key]));
+        }
+        const will_move = new Set();
+        const did_move = new Set();
+        function insert(block) {
+            transition_in(block, 1);
+            block.m(node, next);
+            lookup.set(block.key, block);
+            next = block.first;
+            n--;
+        }
+        while (o && n) {
+            const new_block = new_blocks[n - 1];
+            const old_block = old_blocks[o - 1];
+            const new_key = new_block.key;
+            const old_key = old_block.key;
+            if (new_block === old_block) {
+                // do nothing
+                next = new_block.first;
+                o--;
+                n--;
+            }
+            else if (!new_lookup.has(old_key)) {
+                // remove old block
+                destroy(old_block, lookup);
+                o--;
+            }
+            else if (!lookup.has(new_key) || will_move.has(new_key)) {
+                insert(new_block);
+            }
+            else if (did_move.has(old_key)) {
+                o--;
+            }
+            else if (deltas.get(new_key) > deltas.get(old_key)) {
+                did_move.add(new_key);
+                insert(new_block);
+            }
+            else {
+                will_move.add(old_key);
+                o--;
+            }
+        }
+        while (o--) {
+            const old_block = old_blocks[o];
+            if (!new_lookup.has(old_block.key))
+                destroy(old_block, lookup);
+        }
+        while (n)
+            insert(new_blocks[n - 1]);
+        return new_blocks;
+    }
+    function validate_each_keys(ctx, list, get_context, get_key) {
+        const keys = new Set();
+        for (let i = 0; i < list.length; i++) {
+            const key = get_key(get_context(ctx, list, i));
+            if (keys.has(key)) {
+                throw new Error('Cannot have duplicate keys in a keyed each');
+            }
+            keys.add(key);
+        }
+    }
 
     function bind(component, name, callback) {
         const index = component.$$.props[name];
@@ -719,6 +922,62 @@ var app = (function () {
         $inject_state() { }
     }
 
+    function cubicInOut(t) {
+        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
+    }
+    function cubicOut(t) {
+        const f = t - 1.0;
+        return f * f * f + 1.0;
+    }
+
+    function fade(node, { delay = 0, duration = 400, easing = identity$1 } = {}) {
+        const o = +getComputedStyle(node).opacity;
+        return {
+            delay,
+            duration,
+            easing,
+            css: t => `opacity: ${t * o}`
+        };
+    }
+    function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 } = {}) {
+        const style = getComputedStyle(node);
+        const target_opacity = +style.opacity;
+        const transform = style.transform === 'none' ? '' : style.transform;
+        const od = target_opacity * (1 - opacity);
+        return {
+            delay,
+            duration,
+            easing,
+            css: (t, u) => `
+			transform: ${transform} translate(${(1 - t) * x}px, ${(1 - t) * y}px);
+			opacity: ${target_opacity - (od * u)}`
+        };
+    }
+    function draw(node, { delay = 0, speed, duration, easing = cubicInOut } = {}) {
+        let len = node.getTotalLength();
+        const style = getComputedStyle(node);
+        if (style.strokeLinecap !== 'butt') {
+            len += parseInt(style.strokeWidth);
+        }
+        if (duration === undefined) {
+            if (speed === undefined) {
+                duration = 800;
+            }
+            else {
+                duration = len / speed;
+            }
+        }
+        else if (typeof duration === 'function') {
+            duration = duration(len);
+        }
+        return {
+            delay,
+            duration,
+            easing,
+            css: (t, u) => `stroke-dasharray: ${t * len} ${u * len}`
+        };
+    }
+
     /* src/components/checkbox.svelte generated by Svelte v3.46.3 */
 
     const file$3 = "src/components/checkbox.svelte";
@@ -846,65 +1105,126 @@ var app = (function () {
     	}
     }
 
-    /* src/components/matrice.svelte generated by Svelte v3.46.3 */
-    const file$2 = "src/components/matrice.svelte";
+    /* src/components/matrix.svelte generated by Svelte v3.46.3 */
+    const file$2 = "src/components/matrix.svelte";
 
     function get_each_context$1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[9] = list[i];
-    	child_ctx[11] = i;
+    	child_ctx[10] = list[i];
+    	child_ctx[11] = list;
+    	child_ctx[12] = i;
     	return child_ctx;
     }
 
-    function get_each_context_1(ctx, list, i) {
+    function get_each_context_1$1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[9] = list[i];
-    	child_ctx[12] = list;
-    	child_ctx[13] = i;
+    	child_ctx[10] = list[i];
+    	child_ctx[13] = list;
+    	child_ctx[14] = i;
     	return child_ctx;
     }
 
     function get_each_context_2(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[9] = list[i];
-    	child_ctx[14] = list;
-    	child_ctx[11] = i;
+    	child_ctx[10] = list[i];
+    	child_ctx[14] = i;
     	return child_ctx;
     }
 
-    // (32:3) {#each Array(size) as _, x}
+    // (35:2) {#each Array(size) as _, x}
     function create_each_block_2(ctx) {
+    	let th;
+    	let t;
+    	let th_transition;
+    	let current;
+
+    	const block = {
+    		c: function create() {
+    			th = element$1("th");
+    			t = text(/*x*/ ctx[14]);
+    			attr_dev(th, "class", "svelte-1y13eb6");
+    			toggle_class(th, "active", /*x*/ ctx[14] === /*hoveredCell*/ ctx[2].x);
+    			add_location(th, file$2, 35, 3, 1048);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, th, anchor);
+    			append_dev(th, t);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*hoveredCell*/ 4) {
+    				toggle_class(th, "active", /*x*/ ctx[14] === /*hoveredCell*/ ctx[2].x);
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+
+    			add_render_callback(() => {
+    				if (!th_transition) th_transition = create_bidirectional_transition(th, fly, { y: -100, delay: 50 * /*x*/ ctx[14] }, true);
+    				th_transition.run(1);
+    			});
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			if (!th_transition) th_transition = create_bidirectional_transition(th, fly, { y: -100, delay: 50 * /*x*/ ctx[14] }, false);
+    			th_transition.run(0);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(th);
+    			if (detaching && th_transition) th_transition.end();
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block_2.name,
+    		type: "each",
+    		source: "(35:2) {#each Array(size) as _, x}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (42:3) {#each Array(size) as _, x (x)}
+    function create_each_block_1$1(key_1, ctx) {
     	let td;
     	let checkbox;
     	let updating_checked;
+    	let td_transition;
     	let current;
     	let mounted;
     	let dispose;
 
     	function checkbox_checked_binding(value) {
-    		/*checkbox_checked_binding*/ ctx[4](value, /*y*/ ctx[13], /*x*/ ctx[11]);
+    		/*checkbox_checked_binding*/ ctx[5](value, /*y*/ ctx[12], /*x*/ ctx[14]);
     	}
 
     	let checkbox_props = {};
 
-    	if (/*grid*/ ctx[0][/*y*/ ctx[13]][/*x*/ ctx[11]] !== void 0) {
-    		checkbox_props.checked = /*grid*/ ctx[0][/*y*/ ctx[13]][/*x*/ ctx[11]];
+    	if (/*grid*/ ctx[0][/*y*/ ctx[12]][/*x*/ ctx[14]] !== void 0) {
+    		checkbox_props.checked = /*grid*/ ctx[0][/*y*/ ctx[12]][/*x*/ ctx[14]];
     	}
 
     	checkbox = new Checkbox({ props: checkbox_props, $$inline: true });
     	binding_callbacks.push(() => bind(checkbox, 'checked', checkbox_checked_binding));
-    	checkbox.$on("change", /*change_handler*/ ctx[5]);
+    	checkbox.$on("change", /*change_handler*/ ctx[6]);
 
     	function mouseenter_handler() {
-    		return /*mouseenter_handler*/ ctx[7](/*x*/ ctx[11], /*y*/ ctx[13]);
+    		return /*mouseenter_handler*/ ctx[8](/*x*/ ctx[14], /*y*/ ctx[12]);
     	}
 
     	const block = {
+    		key: key_1,
+    		first: null,
     		c: function create() {
     			td = element$1("td");
     			create_component(checkbox.$$.fragment);
-    			attr_dev(td, "class", "svelte-1nz81bu");
-    			add_location(td, file$2, 32, 4, 857);
+    			attr_dev(td, "class", "svelte-1y13eb6");
+    			add_location(td, file$2, 42, 4, 1328);
+    			this.first = td;
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, td, anchor);
@@ -913,7 +1233,7 @@ var app = (function () {
 
     			if (!mounted) {
     				dispose = [
-    					listen_dev(td, "mouseleave", /*mouseleave_handler*/ ctx[6], false, false, false),
+    					listen_dev(td, "mouseleave", /*mouseleave_handler*/ ctx[7], false, false, false),
     					listen_dev(td, "mouseenter", mouseenter_handler, false, false, false)
     				];
 
@@ -924,9 +1244,9 @@ var app = (function () {
     			ctx = new_ctx;
     			const checkbox_changes = {};
 
-    			if (!updating_checked && dirty & /*grid*/ 1) {
+    			if (!updating_checked && dirty & /*grid, Array, size*/ 3) {
     				updating_checked = true;
-    				checkbox_changes.checked = /*grid*/ ctx[0][/*y*/ ctx[13]][/*x*/ ctx[11]];
+    				checkbox_changes.checked = /*grid*/ ctx[0][/*y*/ ctx[12]][/*x*/ ctx[14]];
     				add_flush_callback(() => updating_checked = false);
     			}
 
@@ -935,15 +1255,47 @@ var app = (function () {
     		i: function intro(local) {
     			if (current) return;
     			transition_in(checkbox.$$.fragment, local);
+
+    			add_render_callback(() => {
+    				if (!td_transition) td_transition = create_bidirectional_transition(
+    					td,
+    					fly,
+    					{
+    						x: /*x*/ ctx[14] * 10,
+    						y: /*y*/ ctx[12] * 10,
+    						duration: 400,
+    						delay: 50 * (/*x*/ ctx[14] + /*y*/ ctx[12])
+    					},
+    					true
+    				);
+
+    				td_transition.run(1);
+    			});
+
     			current = true;
     		},
     		o: function outro(local) {
     			transition_out(checkbox.$$.fragment, local);
+
+    			if (!td_transition) td_transition = create_bidirectional_transition(
+    				td,
+    				fly,
+    				{
+    					x: /*x*/ ctx[14] * 10,
+    					y: /*y*/ ctx[12] * 10,
+    					duration: 400,
+    					delay: 50 * (/*x*/ ctx[14] + /*y*/ ctx[12])
+    				},
+    				false
+    			);
+
+    			td_transition.run(0);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(td);
     			destroy_component(checkbox);
+    			if (detaching && td_transition) td_transition.end();
     			mounted = false;
     			run_all(dispose);
     		}
@@ -951,49 +1303,58 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block_2.name,
+    		id: create_each_block_1$1.name,
     		type: "each",
-    		source: "(32:3) {#each Array(size) as _, x}",
+    		source: "(42:3) {#each Array(size) as _, x (x)}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (29:1) {#each Array(size) as _, y}
-    function create_each_block_1(ctx) {
+    // (39:1) {#each Array(size) as _, y (y)}
+    function create_each_block$1(key_1, ctx) {
     	let tr;
     	let th;
+    	let t0_value = /*y*/ ctx[12] + "";
     	let t0;
+    	let th_transition;
     	let t1;
-    	let current;
-    	let each_value_2 = Array(/*size*/ ctx[1]);
-    	validate_each_argument(each_value_2);
     	let each_blocks = [];
+    	let each_1_lookup = new Map();
+    	let t2;
+    	let current;
+    	let each_value_1 = Array(/*size*/ ctx[1]);
+    	validate_each_argument(each_value_1);
+    	const get_key = ctx => /*x*/ ctx[14];
+    	validate_each_keys(ctx, each_value_1, get_each_context_1$1, get_key);
 
-    	for (let i = 0; i < each_value_2.length; i += 1) {
-    		each_blocks[i] = create_each_block_2(get_each_context_2(ctx, each_value_2, i));
+    	for (let i = 0; i < each_value_1.length; i += 1) {
+    		let child_ctx = get_each_context_1$1(ctx, each_value_1, i);
+    		let key = get_key(child_ctx);
+    		each_1_lookup.set(key, each_blocks[i] = create_each_block_1$1(key, child_ctx));
     	}
 
-    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
-    		each_blocks[i] = null;
-    	});
-
     	const block = {
+    		key: key_1,
+    		first: null,
     		c: function create() {
     			tr = element$1("tr");
     			th = element$1("th");
-    			t0 = text(/*y*/ ctx[13]);
+    			t0 = text(t0_value);
     			t1 = space();
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
-    			attr_dev(th, "class", "svelte-1nz81bu");
-    			add_location(th, file$2, 30, 3, 807);
-    			attr_dev(tr, "class", "svelte-1nz81bu");
-    			add_location(tr, file$2, 29, 2, 798);
+    			t2 = space();
+    			attr_dev(th, "class", "svelte-1y13eb6");
+    			toggle_class(th, "active", /*y*/ ctx[12] === /*hoveredCell*/ ctx[2].y);
+    			add_location(th, file$2, 40, 3, 1200);
+    			attr_dev(tr, "class", "svelte-1y13eb6");
+    			add_location(tr, file$2, 39, 2, 1191);
+    			this.first = tr;
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, tr, anchor);
@@ -1005,48 +1366,43 @@ var app = (function () {
     				each_blocks[i].m(tr, null);
     			}
 
+    			append_dev(tr, t2);
     			current = true;
     		},
-    		p: function update(ctx, dirty) {
-    			if (dirty & /*hover, grid, size*/ 11) {
-    				each_value_2 = Array(/*size*/ ctx[1]);
-    				validate_each_argument(each_value_2);
-    				let i;
+    		p: function update(new_ctx, dirty) {
+    			ctx = new_ctx;
+    			if ((!current || dirty & /*size*/ 2) && t0_value !== (t0_value = /*y*/ ctx[12] + "")) set_data_dev(t0, t0_value);
 
-    				for (i = 0; i < each_value_2.length; i += 1) {
-    					const child_ctx = get_each_context_2(ctx, each_value_2, i);
+    			if (dirty & /*Array, size, hoveredCell*/ 6) {
+    				toggle_class(th, "active", /*y*/ ctx[12] === /*hoveredCell*/ ctx[2].y);
+    			}
 
-    					if (each_blocks[i]) {
-    						each_blocks[i].p(child_ctx, dirty);
-    						transition_in(each_blocks[i], 1);
-    					} else {
-    						each_blocks[i] = create_each_block_2(child_ctx);
-    						each_blocks[i].c();
-    						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(tr, null);
-    					}
-    				}
-
+    			if (dirty & /*Array, size, hover, grid*/ 19) {
+    				each_value_1 = Array(/*size*/ ctx[1]);
+    				validate_each_argument(each_value_1);
     				group_outros();
-
-    				for (i = each_value_2.length; i < each_blocks.length; i += 1) {
-    					out(i);
-    				}
-
+    				validate_each_keys(ctx, each_value_1, get_each_context_1$1, get_key);
+    				each_blocks = update_keyed_each(each_blocks, dirty, get_key, 1, ctx, each_value_1, each_1_lookup, tr, outro_and_destroy_block, create_each_block_1$1, t2, get_each_context_1$1);
     				check_outros();
     			}
     		},
     		i: function intro(local) {
     			if (current) return;
 
-    			for (let i = 0; i < each_value_2.length; i += 1) {
+    			add_render_callback(() => {
+    				if (!th_transition) th_transition = create_bidirectional_transition(th, fly, { x: -100, delay: 50 * /*y*/ ctx[12] }, true);
+    				th_transition.run(1);
+    			});
+
+    			for (let i = 0; i < each_value_1.length; i += 1) {
     				transition_in(each_blocks[i]);
     			}
 
     			current = true;
     		},
     		o: function outro(local) {
-    			each_blocks = each_blocks.filter(Boolean);
+    			if (!th_transition) th_transition = create_bidirectional_transition(th, fly, { x: -100, delay: 50 * /*y*/ ctx[12] }, false);
+    			th_transition.run(0);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				transition_out(each_blocks[i]);
@@ -1056,40 +1412,11 @@ var app = (function () {
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(tr);
-    			destroy_each(each_blocks, detaching);
-    		}
-    	};
+    			if (detaching && th_transition) th_transition.end();
 
-    	dispatch_dev("SvelteRegisterBlock", {
-    		block,
-    		id: create_each_block_1.name,
-    		type: "each",
-    		source: "(29:1) {#each Array(size) as _, y}",
-    		ctx
-    	});
-
-    	return block;
-    }
-
-    // (39:2) {#each Array(size) as _, x}
-    function create_each_block$1(ctx) {
-    	let th;
-    	let t;
-
-    	const block = {
-    		c: function create() {
-    			th = element$1("th");
-    			t = text(/*x*/ ctx[11]);
-    			attr_dev(th, "class", "svelte-1nz81bu");
-    			add_location(th, file$2, 39, 3, 1145);
-    		},
-    		m: function mount(target, anchor) {
-    			insert_dev(target, th, anchor);
-    			append_dev(th, t);
-    		},
-    		p: noop$2,
-    		d: function destroy(detaching) {
-    			if (detaching) detach_dev(th);
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].d();
+    			}
     		}
     	};
 
@@ -1097,7 +1424,7 @@ var app = (function () {
     		block,
     		id: create_each_block$1.name,
     		type: "each",
-    		source: "(39:2) {#each Array(size) as _, x}",
+    		source: "(39:1) {#each Array(size) as _, y (y)}",
     		ctx
     	});
 
@@ -1106,21 +1433,23 @@ var app = (function () {
 
     function create_fragment$2(ctx) {
     	let table;
-    	let t0;
     	let tr;
     	let th;
     	let img;
     	let img_src_value;
+    	let t0;
     	let t1;
+    	let each_blocks = [];
+    	let each1_lookup = new Map();
     	let current;
     	let mounted;
     	let dispose;
-    	let each_value_1 = Array(/*size*/ ctx[1]);
-    	validate_each_argument(each_value_1);
+    	let each_value_2 = Array(/*size*/ ctx[1]);
+    	validate_each_argument(each_value_2);
     	let each_blocks_1 = [];
 
-    	for (let i = 0; i < each_value_1.length; i += 1) {
-    		each_blocks_1[i] = create_each_block_1(get_each_context_1(ctx, each_value_1, i));
+    	for (let i = 0; i < each_value_2.length; i += 1) {
+    		each_blocks_1[i] = create_each_block_2(get_each_context_2(ctx, each_value_2, i));
     	}
 
     	const out = i => transition_out(each_blocks_1[i], 1, 1, () => {
@@ -1129,24 +1458,27 @@ var app = (function () {
 
     	let each_value = Array(/*size*/ ctx[1]);
     	validate_each_argument(each_value);
-    	let each_blocks = [];
+    	const get_key = ctx => /*y*/ ctx[12];
+    	validate_each_keys(ctx, each_value, get_each_context$1, get_key);
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
+    		let child_ctx = get_each_context$1(ctx, each_value, i);
+    		let key = get_key(child_ctx);
+    		each1_lookup.set(key, each_blocks[i] = create_each_block$1(key, child_ctx));
     	}
 
     	const block = {
     		c: function create() {
     			table = element$1("table");
+    			tr = element$1("tr");
+    			th = element$1("th");
+    			img = element$1("img");
+    			t0 = space();
 
     			for (let i = 0; i < each_blocks_1.length; i += 1) {
     				each_blocks_1[i].c();
     			}
 
-    			t0 = space();
-    			tr = element$1("tr");
-    			th = element$1("th");
-    			img = element$1("img");
     			t1 = space();
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
@@ -1155,100 +1487,94 @@ var app = (function () {
 
     			if (!src_url_equal(img.src, img_src_value = "images/dice.png")) attr_dev(img, "src", img_src_value);
     			attr_dev(img, "alt", "dice");
-    			attr_dev(img, "class", "dice svelte-1nz81bu");
-    			add_location(img, file$2, 37, 6, 1032);
-    			attr_dev(th, "class", "svelte-1nz81bu");
-    			add_location(th, file$2, 37, 2, 1028);
-    			attr_dev(tr, "class", "svelte-1nz81bu");
-    			add_location(tr, file$2, 36, 1, 1020);
-    			attr_dev(table, "class", "matrice svelte-1nz81bu");
-    			add_location(table, file$2, 27, 0, 741);
+    			attr_dev(img, "class", "dice svelte-1y13eb6");
+    			add_location(img, file$2, 33, 6, 935);
+    			attr_dev(th, "class", "svelte-1y13eb6");
+    			add_location(th, file$2, 33, 2, 931);
+    			attr_dev(tr, "class", "svelte-1y13eb6");
+    			add_location(tr, file$2, 32, 1, 923);
+    			attr_dev(table, "class", "matrix svelte-1y13eb6");
+    			set_style(table, "--size", (/*size*/ ctx[1] + 1) * 1.5 + "em");
+    			add_location(table, file$2, 31, 0, 866);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, table, anchor);
-
-    			for (let i = 0; i < each_blocks_1.length; i += 1) {
-    				each_blocks_1[i].m(table, null);
-    			}
-
-    			append_dev(table, t0);
     			append_dev(table, tr);
     			append_dev(tr, th);
     			append_dev(th, img);
-    			append_dev(tr, t1);
+    			append_dev(tr, t0);
+
+    			for (let i = 0; i < each_blocks_1.length; i += 1) {
+    				each_blocks_1[i].m(tr, null);
+    			}
+
+    			append_dev(table, t1);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(tr, null);
+    				each_blocks[i].m(table, null);
     			}
 
     			current = true;
 
     			if (!mounted) {
-    				dispose = listen_dev(img, "click", /*randomize*/ ctx[2], false, false, false);
+    				dispose = listen_dev(img, "click", /*randomize*/ ctx[3], false, false, false);
     				mounted = true;
     			}
     		},
     		p: function update(ctx, [dirty]) {
-    			if (dirty & /*Array, size, hover, grid*/ 11) {
-    				each_value_1 = Array(/*size*/ ctx[1]);
-    				validate_each_argument(each_value_1);
+    			if (dirty & /*hoveredCell, size*/ 6) {
+    				each_value_2 = Array(/*size*/ ctx[1]);
+    				validate_each_argument(each_value_2);
     				let i;
 
-    				for (i = 0; i < each_value_1.length; i += 1) {
-    					const child_ctx = get_each_context_1(ctx, each_value_1, i);
+    				for (i = 0; i < each_value_2.length; i += 1) {
+    					const child_ctx = get_each_context_2(ctx, each_value_2, i);
 
     					if (each_blocks_1[i]) {
     						each_blocks_1[i].p(child_ctx, dirty);
     						transition_in(each_blocks_1[i], 1);
     					} else {
-    						each_blocks_1[i] = create_each_block_1(child_ctx);
+    						each_blocks_1[i] = create_each_block_2(child_ctx);
     						each_blocks_1[i].c();
     						transition_in(each_blocks_1[i], 1);
-    						each_blocks_1[i].m(table, t0);
+    						each_blocks_1[i].m(tr, null);
     					}
     				}
 
     				group_outros();
 
-    				for (i = each_value_1.length; i < each_blocks_1.length; i += 1) {
+    				for (i = each_value_2.length; i < each_blocks_1.length; i += 1) {
     					out(i);
     				}
 
     				check_outros();
     			}
 
-    			if (dirty & /*size*/ 2) {
+    			if (dirty & /*Array, size, hover, grid, hoveredCell*/ 23) {
     				each_value = Array(/*size*/ ctx[1]);
     				validate_each_argument(each_value);
-    				let i;
+    				group_outros();
+    				validate_each_keys(ctx, each_value, get_each_context$1, get_key);
+    				each_blocks = update_keyed_each(each_blocks, dirty, get_key, 1, ctx, each_value, each1_lookup, table, outro_and_destroy_block, create_each_block$1, null, get_each_context$1);
+    				check_outros();
+    			}
 
-    				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$1(ctx, each_value, i);
-
-    					if (each_blocks[i]) {
-    						each_blocks[i].p(child_ctx, dirty);
-    					} else {
-    						each_blocks[i] = create_each_block$1(child_ctx);
-    						each_blocks[i].c();
-    						each_blocks[i].m(tr, null);
-    					}
-    				}
-
-    				for (; i < each_blocks.length; i += 1) {
-    					each_blocks[i].d(1);
-    				}
-
-    				each_blocks.length = each_value.length;
+    			if (!current || dirty & /*size*/ 2) {
+    				set_style(table, "--size", (/*size*/ ctx[1] + 1) * 1.5 + "em");
     			}
     		},
     		i: function intro(local) {
     			if (current) return;
 
-    			for (let i = 0; i < each_value_1.length; i += 1) {
+    			for (let i = 0; i < each_value_2.length; i += 1) {
     				transition_in(each_blocks_1[i]);
+    			}
+
+    			for (let i = 0; i < each_value.length; i += 1) {
+    				transition_in(each_blocks[i]);
     			}
 
     			current = true;
@@ -1260,12 +1586,20 @@ var app = (function () {
     				transition_out(each_blocks_1[i]);
     			}
 
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				transition_out(each_blocks[i]);
+    			}
+
     			current = false;
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(table);
     			destroy_each(each_blocks_1, detaching);
-    			destroy_each(each_blocks, detaching);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].d();
+    			}
+
     			mounted = false;
     			dispose();
     		}
@@ -1284,7 +1618,7 @@ var app = (function () {
 
     function instance$2($$self, $$props, $$invalidate) {
     	let { $$slots: slots = {}, $$scope } = $$props;
-    	validate_slots('Matrice', slots, []);
+    	validate_slots('Matrix', slots, []);
     	let { size } = $$props;
     	let { grid = Array.from({ length: size }, () => Array.from({ length: size }, () => false)) } = $$props;
 
@@ -1297,15 +1631,18 @@ var app = (function () {
     	}
 
     	const dispatch = createEventDispatcher();
+    	const hoveredCell = { x: -1, y: -1 };
 
     	function hover(x, y) {
     		dispatch('hover', { x, y });
+    		$$invalidate(2, hoveredCell.x = x, hoveredCell);
+    		$$invalidate(2, hoveredCell.y = y, hoveredCell);
     	}
 
     	const writable_props = ['size', 'grid'];
 
     	Object.keys($$props).forEach(key => {
-    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== '$$' && key !== 'slot') console.warn(`<Matrice> was created with unknown prop '${key}'`);
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== '$$' && key !== 'slot') console.warn(`<Matrix> was created with unknown prop '${key}'`);
     	});
 
     	function checkbox_checked_binding(value, y, x) {
@@ -1332,11 +1669,13 @@ var app = (function () {
 
     	$$self.$capture_state = () => ({
     		createEventDispatcher,
+    		fly,
     		Checkbox,
     		size,
     		grid,
     		randomize,
     		dispatch,
+    		hoveredCell,
     		hover
     	});
 
@@ -1369,6 +1708,7 @@ var app = (function () {
     	return [
     		grid,
     		size,
+    		hoveredCell,
     		randomize,
     		hover,
     		checkbox_checked_binding,
@@ -1378,14 +1718,14 @@ var app = (function () {
     	];
     }
 
-    class Matrice extends SvelteComponentDev {
+    class Matrix extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
     		init(this, options, instance$2, create_fragment$2, safe_not_equal, { size: 1, grid: 0 });
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
-    			tagName: "Matrice",
+    			tagName: "Matrix",
     			options,
     			id: create_fragment$2.name
     		});
@@ -1394,81 +1734,25 @@ var app = (function () {
     		const props = options.props || {};
 
     		if (/*size*/ ctx[1] === undefined && !('size' in props)) {
-    			console.warn("<Matrice> was created without expected prop 'size'");
+    			console.warn("<Matrix> was created without expected prop 'size'");
     		}
     	}
 
     	get size() {
-    		throw new Error("<Matrice>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Matrix>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	set size(value) {
-    		throw new Error("<Matrice>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Matrix>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	get grid() {
-    		throw new Error("<Matrice>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Matrix>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	set grid(value) {
-    		throw new Error("<Matrice>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		throw new Error("<Matrix>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
-    }
-
-    function cubicInOut(t) {
-        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
-    }
-    function cubicOut(t) {
-        const f = t - 1.0;
-        return f * f * f + 1.0;
-    }
-
-    function fade(node, { delay = 0, duration = 400, easing = identity$1 } = {}) {
-        const o = +getComputedStyle(node).opacity;
-        return {
-            delay,
-            duration,
-            easing,
-            css: t => `opacity: ${t * o}`
-        };
-    }
-    function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 } = {}) {
-        const style = getComputedStyle(node);
-        const target_opacity = +style.opacity;
-        const transform = style.transform === 'none' ? '' : style.transform;
-        const od = target_opacity * (1 - opacity);
-        return {
-            delay,
-            duration,
-            easing,
-            css: (t, u) => `
-			transform: ${transform} translate(${(1 - t) * x}px, ${(1 - t) * y}px);
-			opacity: ${target_opacity - (od * u)}`
-        };
-    }
-    function draw(node, { delay = 0, speed, duration, easing = cubicInOut } = {}) {
-        let len = node.getTotalLength();
-        const style = getComputedStyle(node);
-        if (style.strokeLinecap !== 'butt') {
-            len += parseInt(style.strokeWidth);
-        }
-        if (duration === undefined) {
-            if (speed === undefined) {
-                duration = 800;
-            }
-            else {
-                duration = len / speed;
-            }
-        }
-        else if (typeof duration === 'function') {
-            duration = duration(len);
-        }
-        return {
-            delay,
-            duration,
-            easing,
-            css: (t, u) => `stroke-dasharray: ${t * len} ${u * len}`
-        };
     }
 
     /* src/icons/arrow-left.svelte generated by Svelte v3.46.3 */
@@ -34298,12 +34582,12 @@ var printLayoutInfo;
             this.width = this.cy.width();
             this.heigth = this.cy.height();
         }
-        set(matrice) {
+        set(matrix) {
             const newEdges = [];
-            matrice.forEach((row, i) => {
+            matrix.forEach((row, i) => {
                 if (i >= this.nodes.length) { // if a node doesn't exist, create it
                     const position = {
-                        x: Math.floor(50 + Math.random() * (this.width - 100)),
+                        x: Math.floor(50 + Math.random() * (this.width - 100) * 0.85),
                         y: Math.floor(50 + Math.random() * (this.heigth - 100))
                     };
                     this.nodes.push(this.cy.add({ group: 'nodes', data: { id: 'n' + i, label: `${this.cities[i]} (${i})` }, position }));
@@ -34314,7 +34598,7 @@ var printLayoutInfo;
                     }
                 });
             });
-            while (this.nodes.length > matrice.length) { // remove nodes that don't exist anymore
+            while (this.nodes.length > matrix.length) { // remove nodes that don't exist anymore
                 this.nodes.pop().remove();
             }
             if (this.edges)
@@ -34326,16 +34610,17 @@ var printLayoutInfo;
             if (!this.edges)
                 return [];
             const distances = [];
+            for (let i = 0; i < this.nodes.length; i++) {
+                distances[i] = Array(this.nodes.length).fill(-1);
+            }
             this.edges.forEach((edge, i) => {
                 const nodes = edge.connectedNodes();
                 const n = nodes.map(node => node.position());
                 if (nodes.length !== 2)
                     return;
                 const distance = Math.round((Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2))) * 10) / 10;
-                distances.push({
-                    distance,
-                    path: [nodes[0].data('label'), nodes[1].data('label')]
-                });
+                const Ids = nodes.map(node => node.id().substring(1));
+                distances[parseInt(Ids[0])][parseInt(Ids[1])] = distance;
                 edge.data('label', distance);
             });
             return distances;
@@ -34358,43 +34643,56 @@ var printLayoutInfo;
 
     function get_each_context(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[11] = list[i];
+    	child_ctx[13] = list[i];
+    	child_ctx[15] = i;
     	return child_ctx;
     }
 
-    // (38:2) {#if show}
+    function get_each_context_1(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[16] = list[i];
+    	child_ctx[18] = i;
+    	return child_ctx;
+    }
+
+    // (39:2) {#if show}
     function create_if_block(ctx) {
+    	let div0;
+    	let button0;
+    	let t1;
     	let input;
     	let input_intro;
     	let input_outro;
-    	let t0;
-    	let div0;
-    	let matrice;
-    	let updating_grid;
-    	let div0_intro;
-    	let div0_outro;
-    	let t1;
+    	let t2;
+    	let button1;
+    	let t4;
     	let div1;
+    	let matrix;
+    	let updating_grid;
     	let div1_intro;
     	let div1_outro;
+    	let t5;
+    	let div2;
+    	let div2_intro;
+    	let div2_outro;
     	let current;
     	let mounted;
     	let dispose;
 
-    	function matrice_grid_binding(value) {
-    		/*matrice_grid_binding*/ ctx[8](value);
+    	function matrix_grid_binding(value) {
+    		/*matrix_grid_binding*/ ctx[11](value);
     	}
 
-    	let matrice_props = { size: /*gridSize*/ ctx[2] };
+    	let matrix_props = { size: /*gridSize*/ ctx[3] };
 
     	if (/*grid*/ ctx[0] !== void 0) {
-    		matrice_props.grid = /*grid*/ ctx[0];
+    		matrix_props.grid = /*grid*/ ctx[0];
     	}
 
-    	matrice = new Matrice({ props: matrice_props, $$inline: true });
-    	binding_callbacks.push(() => bind(matrice, 'grid', matrice_grid_binding));
-    	matrice.$on("hover", /*hover*/ ctx[4]);
-    	let each_value = /*distances*/ ctx[3];
+    	matrix = new Matrix({ props: matrix_props, $$inline: true });
+    	binding_callbacks.push(() => bind(matrix, 'grid', matrix_grid_binding));
+    	matrix.$on("hover", /*hover*/ ctx[5]);
+    	let each_value = /*distances*/ ctx[1];
     	validate_each_argument(each_value);
     	let each_blocks = [];
 
@@ -34404,44 +34702,66 @@ var printLayoutInfo;
 
     	const block = {
     		c: function create() {
-    			input = element$1("input");
-    			t0 = space();
     			div0 = element$1("div");
-    			create_component(matrice.$$.fragment);
+    			button0 = element$1("button");
+    			button0.textContent = "-";
     			t1 = space();
+    			input = element$1("input");
+    			t2 = space();
+    			button1 = element$1("button");
+    			button1.textContent = "+";
+    			t4 = space();
     			div1 = element$1("div");
+    			create_component(matrix.$$.fragment);
+    			t5 = space();
+    			div2 = element$1("div");
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
+    			attr_dev(button0, "class", "svelte-1pwhvws");
+    			add_location(button0, file, 40, 4, 2117);
     			attr_dev(input, "type", "range");
     			attr_dev(input, "min", "2");
-    			attr_dev(input, "max", "15");
-    			add_location(input, file, 38, 3, 2078);
-    			add_location(div0, file, 39, 3, 2190);
-    			attr_dev(div1, "class", "result svelte-13k1ymy");
-    			add_location(div1, file, 42, 3, 2339);
+    			attr_dev(input, "max", "10");
+    			attr_dev(input, "class", "svelte-1pwhvws");
+    			add_location(input, file, 41, 4, 2170);
+    			attr_dev(button1, "class", "svelte-1pwhvws");
+    			add_location(button1, file, 42, 4, 2299);
+    			attr_dev(div0, "class", "inputs svelte-1pwhvws");
+    			add_location(div0, file, 39, 3, 2092);
+    			attr_dev(div1, "class", "matrix-box svelte-1pwhvws");
+    			add_location(div1, file, 44, 3, 2361);
+    			attr_dev(div2, "class", "result svelte-1pwhvws");
+    			add_location(div2, file, 47, 3, 2530);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, input, anchor);
-    			set_input_value(input, /*gridSize*/ ctx[2]);
-    			insert_dev(target, t0, anchor);
     			insert_dev(target, div0, anchor);
-    			mount_component(matrice, div0, null);
-    			insert_dev(target, t1, anchor);
+    			append_dev(div0, button0);
+    			append_dev(div0, t1);
+    			append_dev(div0, input);
+    			set_input_value(input, /*gridSize*/ ctx[3]);
+    			append_dev(div0, t2);
+    			append_dev(div0, button1);
+    			insert_dev(target, t4, anchor);
     			insert_dev(target, div1, anchor);
+    			mount_component(matrix, div1, null);
+    			insert_dev(target, t5, anchor);
+    			insert_dev(target, div2, anchor);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(div1, null);
+    				each_blocks[i].m(div2, null);
     			}
 
     			current = true;
 
     			if (!mounted) {
     				dispose = [
-    					listen_dev(input, "change", /*input_change_input_handler*/ ctx[7]),
-    					listen_dev(input, "input", /*input_change_input_handler*/ ctx[7])
+    					listen_dev(button0, "click", /*click_handler_1*/ ctx[8], false, false, false),
+    					listen_dev(input, "change", /*input_change_input_handler*/ ctx[9]),
+    					listen_dev(input, "input", /*input_change_input_handler*/ ctx[9]),
+    					listen_dev(button1, "click", /*click_handler_2*/ ctx[10], false, false, false)
     				];
 
     				mounted = true;
@@ -34450,23 +34770,23 @@ var printLayoutInfo;
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
 
-    			if (dirty & /*gridSize*/ 4) {
-    				set_input_value(input, /*gridSize*/ ctx[2]);
+    			if (dirty & /*gridSize*/ 8) {
+    				set_input_value(input, /*gridSize*/ ctx[3]);
     			}
 
-    			const matrice_changes = {};
-    			if (dirty & /*gridSize*/ 4) matrice_changes.size = /*gridSize*/ ctx[2];
+    			const matrix_changes = {};
+    			if (dirty & /*gridSize*/ 8) matrix_changes.size = /*gridSize*/ ctx[3];
 
     			if (!updating_grid && dirty & /*grid*/ 1) {
     				updating_grid = true;
-    				matrice_changes.grid = /*grid*/ ctx[0];
+    				matrix_changes.grid = /*grid*/ ctx[0];
     				add_flush_callback(() => updating_grid = false);
     			}
 
-    			matrice.$set(matrice_changes);
+    			matrix.$set(matrix_changes);
 
-    			if (dirty & /*distances*/ 8) {
-    				each_value = /*distances*/ ctx[3];
+    			if (dirty & /*distances, cities*/ 18) {
+    				each_value = /*distances*/ ctx[1];
     				validate_each_argument(each_value);
     				let i;
 
@@ -34478,7 +34798,7 @@ var printLayoutInfo;
     					} else {
     						each_blocks[i] = create_each_block(child_ctx);
     						each_blocks[i].c();
-    						each_blocks[i].m(div1, null);
+    						each_blocks[i].m(div2, null);
     					}
     				}
 
@@ -34494,22 +34814,22 @@ var printLayoutInfo;
 
     			add_render_callback(() => {
     				if (input_outro) input_outro.end(1);
-    				input_intro = create_in_transition(input, fly, { x: 100, duration });
+    				input_intro = create_in_transition(input, fly, { y: 100, duration, delay: duration });
     				input_intro.start();
     			});
 
-    			transition_in(matrice.$$.fragment, local);
-
-    			add_render_callback(() => {
-    				if (div0_outro) div0_outro.end(1);
-    				div0_intro = create_in_transition(div0, fly, { x: 100, duration, delay: duration });
-    				div0_intro.start();
-    			});
+    			transition_in(matrix.$$.fragment, local);
 
     			add_render_callback(() => {
     				if (div1_outro) div1_outro.end(1);
-    				div1_intro = create_in_transition(div1, fly, { x: 100, duration, delay: 2 * duration });
+    				div1_intro = create_in_transition(div1, fly, { y: 100, duration, delay: 2 * duration });
     				div1_intro.start();
+    			});
+
+    			add_render_callback(() => {
+    				if (div2_outro) div2_outro.end(1);
+    				div2_intro = create_in_transition(div2, fly, { y: 100, duration, delay: 3 * duration });
+    				div2_intro.start();
     			});
 
     			current = true;
@@ -34517,24 +34837,24 @@ var printLayoutInfo;
     		o: function outro(local) {
     			if (input_intro) input_intro.invalidate();
     			input_outro = create_out_transition(input, fade, { duration });
-    			transition_out(matrice.$$.fragment, local);
-    			if (div0_intro) div0_intro.invalidate();
-    			div0_outro = create_out_transition(div0, fade, { duration });
+    			transition_out(matrix.$$.fragment, local);
     			if (div1_intro) div1_intro.invalidate();
     			div1_outro = create_out_transition(div1, fade, { duration });
+    			if (div2_intro) div2_intro.invalidate();
+    			div2_outro = create_out_transition(div2, fade, { duration });
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(input);
-    			if (detaching && input_outro) input_outro.end();
-    			if (detaching) detach_dev(t0);
     			if (detaching) detach_dev(div0);
-    			destroy_component(matrice);
-    			if (detaching && div0_outro) div0_outro.end();
-    			if (detaching) detach_dev(t1);
+    			if (detaching && input_outro) input_outro.end();
+    			if (detaching) detach_dev(t4);
     			if (detaching) detach_dev(div1);
-    			destroy_each(each_blocks, detaching);
+    			destroy_component(matrix);
     			if (detaching && div1_outro) div1_outro.end();
+    			if (detaching) detach_dev(t5);
+    			if (detaching) detach_dev(div2);
+    			destroy_each(each_blocks, detaching);
+    			if (detaching && div2_outro) div2_outro.end();
     			mounted = false;
     			run_all(dispose);
     		}
@@ -34544,46 +34864,170 @@ var printLayoutInfo;
     		block,
     		id: create_if_block.name,
     		type: "if",
-    		source: "(38:2) {#if show}",
+    		source: "(39:2) {#if show}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (44:4) {#each distances as d}
-    function create_each_block(ctx) {
-    	let span;
-    	let b;
-    	let t0_value = /*d*/ ctx[11].path.join(' -> ') + "";
+    // (52:6) {#if cell !== -1}
+    function create_if_block_1(ctx) {
+    	let t0_value = /*cities*/ ctx[4][/*source*/ ctx[15]] + "";
     	let t0;
     	let t1;
-    	let t2_value = /*d*/ ctx[11].distance + "";
+    	let t2_value = /*cities*/ ctx[4][/*target*/ ctx[18]] + "";
     	let t2;
+    	let t3;
+    	let t4_value = /*cell*/ ctx[16] + "";
+    	let t4;
+    	let t5;
+    	let br;
 
     	const block = {
     		c: function create() {
-    			span = element$1("span");
-    			b = element$1("b");
     			t0 = text(t0_value);
-    			t1 = space();
+    			t1 = text(" -> ");
     			t2 = text(t2_value);
-    			add_location(b, file, 44, 11, 2465);
-    			add_location(span, file, 44, 5, 2459);
+    			t3 = text(" : ");
+    			t4 = text(t4_value);
+    			t5 = space();
+    			br = element$1("br");
+    			add_location(br, file, 52, 53, 2770);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, span, anchor);
-    			append_dev(span, b);
-    			append_dev(b, t0);
-    			append_dev(span, t1);
-    			append_dev(span, t2);
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, t2, anchor);
+    			insert_dev(target, t3, anchor);
+    			insert_dev(target, t4, anchor);
+    			insert_dev(target, t5, anchor);
+    			insert_dev(target, br, anchor);
     		},
     		p: function update(ctx, dirty) {
-    			if (dirty & /*distances*/ 8 && t0_value !== (t0_value = /*d*/ ctx[11].path.join(' -> ') + "")) set_data_dev(t0, t0_value);
-    			if (dirty & /*distances*/ 8 && t2_value !== (t2_value = /*d*/ ctx[11].distance + "")) set_data_dev(t2, t2_value);
+    			if (dirty & /*distances*/ 2 && t4_value !== (t4_value = /*cell*/ ctx[16] + "")) set_data_dev(t4, t4_value);
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(span);
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(t2);
+    			if (detaching) detach_dev(t3);
+    			if (detaching) detach_dev(t4);
+    			if (detaching) detach_dev(t5);
+    			if (detaching) detach_dev(br);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block_1.name,
+    		type: "if",
+    		source: "(52:6) {#if cell !== -1}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (51:5) {#each row as cell, target}
+    function create_each_block_1(ctx) {
+    	let if_block_anchor;
+    	let if_block = /*cell*/ ctx[16] !== -1 && create_if_block_1(ctx);
+
+    	const block = {
+    		c: function create() {
+    			if (if_block) if_block.c();
+    			if_block_anchor = empty();
+    		},
+    		m: function mount(target, anchor) {
+    			if (if_block) if_block.m(target, anchor);
+    			insert_dev(target, if_block_anchor, anchor);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (/*cell*/ ctx[16] !== -1) {
+    				if (if_block) {
+    					if_block.p(ctx, dirty);
+    				} else {
+    					if_block = create_if_block_1(ctx);
+    					if_block.c();
+    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    				}
+    			} else if (if_block) {
+    				if_block.d(1);
+    				if_block = null;
+    			}
+    		},
+    		d: function destroy(detaching) {
+    			if (if_block) if_block.d(detaching);
+    			if (detaching) detach_dev(if_block_anchor);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block_1.name,
+    		type: "each",
+    		source: "(51:5) {#each row as cell, target}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (50:4) {#each distances as row, source}
+    function create_each_block(ctx) {
+    	let each_1_anchor;
+    	let each_value_1 = /*row*/ ctx[13];
+    	validate_each_argument(each_value_1);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value_1.length; i += 1) {
+    		each_blocks[i] = create_each_block_1(get_each_context_1(ctx, each_value_1, i));
+    	}
+
+    	const block = {
+    		c: function create() {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			each_1_anchor = empty();
+    		},
+    		m: function mount(target, anchor) {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(target, anchor);
+    			}
+
+    			insert_dev(target, each_1_anchor, anchor);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*distances, cities*/ 18) {
+    				each_value_1 = /*row*/ ctx[13];
+    				validate_each_argument(each_value_1);
+    				let i;
+
+    				for (i = 0; i < each_value_1.length; i += 1) {
+    					const child_ctx = get_each_context_1(ctx, each_value_1, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    					} else {
+    						each_blocks[i] = create_each_block_1(child_ctx);
+    						each_blocks[i].c();
+    						each_blocks[i].m(each_1_anchor.parentNode, each_1_anchor);
+    					}
+    				}
+
+    				for (; i < each_blocks.length; i += 1) {
+    					each_blocks[i].d(1);
+    				}
+
+    				each_blocks.length = each_value_1.length;
+    			}
+    		},
+    		d: function destroy(detaching) {
+    			destroy_each(each_blocks, detaching);
+    			if (detaching) detach_dev(each_1_anchor);
     		}
     	};
 
@@ -34591,7 +35035,7 @@ var printLayoutInfo;
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(44:4) {#each distances as d}",
+    		source: "(50:4) {#each distances as row, source}",
     		ctx
     	});
 
@@ -34610,7 +35054,7 @@ var printLayoutInfo;
     	let mounted;
     	let dispose;
     	arrowleft = new Arrow_left({ $$inline: true });
-    	let if_block = /*show*/ ctx[1] && create_if_block(ctx);
+    	let if_block = /*show*/ ctx[2] && create_if_block(ctx);
 
     	const block = {
     		c: function create() {
@@ -34623,16 +35067,16 @@ var printLayoutInfo;
     			t1 = space();
     			if (if_block) if_block.c();
     			attr_dev(div0, "id", "cy");
-    			attr_dev(div0, "class", "svelte-13k1ymy");
-    			add_location(div0, file, 32, 1, 1926);
-    			attr_dev(div1, "class", "toggle-btn svelte-13k1ymy");
-    			add_location(div1, file, 34, 2, 1979);
+    			attr_dev(div0, "class", "svelte-1pwhvws");
+    			add_location(div0, file, 33, 1, 1940);
+    			attr_dev(div1, "class", "toggle-btn svelte-1pwhvws");
+    			add_location(div1, file, 35, 2, 1993);
     			attr_dev(div2, "id", "sidebar");
-    			attr_dev(div2, "class", "svelte-13k1ymy");
-    			toggle_class(div2, "show", /*show*/ ctx[1]);
-    			add_location(div2, file, 33, 1, 1947);
-    			attr_dev(main, "class", "svelte-13k1ymy");
-    			add_location(main, file, 31, 0, 1918);
+    			attr_dev(div2, "class", "svelte-1pwhvws");
+    			toggle_class(div2, "show", /*show*/ ctx[2]);
+    			add_location(div2, file, 34, 1, 1961);
+    			attr_dev(main, "class", "svelte-1pwhvws");
+    			add_location(main, file, 32, 0, 1932);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -34649,16 +35093,16 @@ var printLayoutInfo;
     			current = true;
 
     			if (!mounted) {
-    				dispose = listen_dev(div1, "click", /*click_handler*/ ctx[6], false, false, false);
+    				dispose = listen_dev(div1, "click", /*click_handler*/ ctx[7], false, false, false);
     				mounted = true;
     			}
     		},
     		p: function update(ctx, [dirty]) {
-    			if (/*show*/ ctx[1]) {
+    			if (/*show*/ ctx[2]) {
     				if (if_block) {
     					if_block.p(ctx, dirty);
 
-    					if (dirty & /*show*/ 2) {
+    					if (dirty & /*show*/ 4) {
     						transition_in(if_block, 1);
     					}
     				} else {
@@ -34677,8 +35121,8 @@ var printLayoutInfo;
     				check_outros();
     			}
 
-    			if (dirty & /*show*/ 2) {
-    				toggle_class(div2, "show", /*show*/ ctx[1]);
+    			if (dirty & /*show*/ 4) {
+    				toggle_class(div2, "show", /*show*/ ctx[2]);
     			}
     		},
     		i: function intro(local) {
@@ -34829,16 +35273,16 @@ var printLayoutInfo;
     	];
 
     	window.addEventListener('load', () => {
-    		$$invalidate(5, graph = new Graph(cities));
+    		$$invalidate(6, graph = new Graph(cities));
     		updateDistances();
     	});
 
     	let grid;
     	let gridSize = 5;
-    	let distances = [];
+    	let distances = [[]];
 
     	function updateDistances() {
-    		$$invalidate(3, distances = graph.getDistances());
+    		$$invalidate(1, distances = graph.getDistances());
     	}
 
     	window.addEventListener('mouseup', updateDistances);
@@ -34854,21 +35298,29 @@ var printLayoutInfo;
     	});
 
     	const click_handler = () => {
-    		$$invalidate(1, show = !show);
+    		$$invalidate(2, show = !show);
+    	};
+
+    	const click_handler_1 = () => {
+    		$$invalidate(3, gridSize--, gridSize);
     	};
 
     	function input_change_input_handler() {
     		gridSize = to_number(this.value);
-    		$$invalidate(2, gridSize);
+    		$$invalidate(3, gridSize);
     	}
 
-    	function matrice_grid_binding(value) {
+    	const click_handler_2 = () => {
+    		$$invalidate(3, gridSize++, gridSize);
+    	};
+
+    	function matrix_grid_binding(value) {
     		grid = value;
     		$$invalidate(0, grid);
     	}
 
     	$$self.$capture_state = () => ({
-    		Matrice,
+    		Matrix,
     		ArrowLeft: Arrow_left,
     		Graph,
     		fly,
@@ -34885,11 +35337,11 @@ var printLayoutInfo;
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ('show' in $$props) $$invalidate(1, show = $$props.show);
-    		if ('graph' in $$props) $$invalidate(5, graph = $$props.graph);
+    		if ('show' in $$props) $$invalidate(2, show = $$props.show);
+    		if ('graph' in $$props) $$invalidate(6, graph = $$props.graph);
     		if ('grid' in $$props) $$invalidate(0, grid = $$props.grid);
-    		if ('gridSize' in $$props) $$invalidate(2, gridSize = $$props.gridSize);
-    		if ('distances' in $$props) $$invalidate(3, distances = $$props.distances);
+    		if ('gridSize' in $$props) $$invalidate(3, gridSize = $$props.gridSize);
+    		if ('distances' in $$props) $$invalidate(1, distances = $$props.distances);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -34897,24 +35349,29 @@ var printLayoutInfo;
     	}
 
     	$$self.$$.update = () => {
-    		if ($$self.$$.dirty & /*graph, grid*/ 33) {
+    		if ($$self.$$.dirty & /*graph, grid*/ 65) {
     			if (graph) {
     				graph.set(grid);
     				updateDistances();
     			}
     		}
+
+    		if ($$self.$$.dirty & /*distances*/ 2) ;
     	};
 
     	return [
     		grid,
+    		distances,
     		show,
     		gridSize,
-    		distances,
+    		cities,
     		hover,
     		graph,
     		click_handler,
+    		click_handler_1,
     		input_change_input_handler,
-    		matrice_grid_binding
+    		click_handler_2,
+    		matrix_grid_binding
     	];
     }
 
