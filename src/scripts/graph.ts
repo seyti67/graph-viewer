@@ -8,6 +8,8 @@ export class Graph {
 	private edges: any;
 	private tmpEdge: any;
 
+	private SpeedMode = false;
+
 	private distanceEdges: Array<any> = [];
 	private pathEdges: Array<any> = [];
 
@@ -35,13 +37,21 @@ export class Graph {
 				selector: 'edge',
 				style: {
 					'width': 3,
-					'line-color': '#ccc',
+					'line-color': '#aaa',
 					'target-arrow-color': '#ccc',
 					'target-arrow-shape': 'triangle',
 					'curve-style': 'straight',
 					'text-background-color': '#fff',
 					'text-background-opacity': 1,
 					'text-background-padding': 6,
+				}
+			},
+			{
+				selector: 'edge[speed > 0]',
+				style: {
+					'line-color': 'data(color)',
+					'target-arrow-color': 'data(color)',
+					'color': 'data(color)',
 				}
 			},
 			{
@@ -60,21 +70,21 @@ export class Graph {
 			{
 				selector: 'edge[distance]',
 				style: {
-					'line-color': '#c14c28',
-					'target-arrow-color': '#992d0c',
+					'line-color': '#d33939',
+					'target-arrow-color': '#9b1a1a',
 				}
 			},
 			{
 				selector: 'node[found = 1]',
 				style: {
-					'background-color': '#43a868',
+					'background-color': '#18bf55',
 				}
 			},
 			{
 				selector: 'edge[path]',
 				style: {
-					'line-color': '#43a868',
-					'target-arrow-color': '#0c893a',
+					'line-color': '#18bf55',
+					'target-arrow-color': '#0e7f37',
 				}
 			}
 			],
@@ -101,7 +111,14 @@ export class Graph {
 			}
 			row.forEach((value, j) => {
 				if (value) {
-					newEdges.push({ group: 'edges', data: { id: 'e' + i + j, source: 'n' + i, target: 'n' + j } });
+					newEdges.push({
+						group: 'edges',
+						data: {
+							id: 'e' + i + j,
+							source: 'n' + i,
+							target: 'n' + j,
+						}
+					});
 				}
 			});
 		});
@@ -112,7 +129,24 @@ export class Graph {
 		if (this.edges) this.cy.remove(this.edges);
 		this.edges = this.cy.add(newEdges);
 
+		this.speedMode(this.SpeedMode);
 		this.getDistances();
+	}
+
+	public speedMode(mode: boolean): void {
+		this.SpeedMode = mode;
+		if (mode) {
+			this.edges.forEach(edge => {
+				const speed = 20 + Math.floor(Math.random()*120);
+				edge.data('speed', speed);
+				edge.data('color', `hsl(${speed}, 30%, 40%)`);
+			});
+		} else {
+			this.edges.forEach(edge => {
+				edge.data('speed', 0);
+				edge.data('color', '');
+			});
+		}
 	}
 
 	public getDistances(): Array<Array<number>> {
@@ -126,7 +160,8 @@ export class Graph {
 			const nodes = edge.connectedNodes();
 			const n = nodes.map(node => node.position());
 			if (nodes.length !== 2) return;
-			const distance = Math.round((Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2))) * 10) / 10;
+			let distance = Math.round((Math.sqrt(Math.pow(n[0].x - n[1].x, 2) + Math.pow(n[0].y - n[1].y, 2))) * 10) / 10
+			if (this.SpeedMode) distance = Math.round(distance / edge.data('speed')*100) / 100;
 
 			const Ids = nodes.map(node => node.id().substring(1));
 			distances[parseInt(Ids[0])][parseInt(Ids[1])] = distance;

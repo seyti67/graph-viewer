@@ -8,6 +8,7 @@ import { fly, fade } from 'svelte/transition';
 import Fireworks from './components/fireworks.svelte';
 import Button from './components/button.svelte';
 import Select from './components/select.svelte';
+import Checkbox from './components/checkbox.svelte';
 
 let show = true;
 const duration = 300;
@@ -33,6 +34,12 @@ function updateDistances() {
 	if (computed.join('') === distances.join('')) return;
 	distances = computed;
 	updateFinder();
+}
+
+let speedMode = false;
+$: if(graph) {
+	graph.speedMode(speedMode);
+	updateDistances();
 }
 
 function hover(e: CustomEvent) {
@@ -96,8 +103,11 @@ function handlePath(res: PathRes) {
 		</div>
 		{#if show}
 			<Range bind:value={gridSize} min="2" max="10"/>
-			<div in:fly={{y:100, duration, delay:duration}} out:fade={{duration}} class="matrix-box">
+			<div in:fly={{y:100, duration}} out:fade={{duration}} class="matrix-box">
 				<Matrix bind:grid={grid} size={gridSize} on:hover={hover}/>
+			</div>
+			<div style="display:flex;" in:fly={{x:100,duration, delay:duration}} out:fade={{duration}}>
+				Speed mode:&nbsp;&nbsp;<Checkbox bind:checked={speedMode}></Checkbox>
 			</div>
 			<div in:fly={{x: 100, duration, delay: 2*duration}} out:fade={{duration}}>
 				<h2>Find path</h2>
