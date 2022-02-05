@@ -3,8 +3,11 @@ import Matrix from './components/matrix.svelte';
 import ArrowLeft from './icons/arrow-left.svelte';
 import Range from './components/range.svelte';
 import { Graph } from './scripts/graph';
-import { findPath } from './scripts/path-finder';
+import { findPath, PathRes } from './scripts/path-finder';
 import { fly, fade } from 'svelte/transition';
+import Fireworks from './components/fireworks.svelte';
+import Button from './components/button.svelte';
+import Select from './components/select.svelte';
 
 let show = true;
 const duration = 300;
@@ -26,9 +29,11 @@ $: if(graph) {
 
 let distances = [[]];
 function updateDistances() {
-	distances = graph.getDistances();
+	const computed = graph.getDistances();
+	if (computed.join('') === distances.join('')) return;
+	distances = computed;
+	updateFinder();
 }
-window.addEventListener('mouseup', updateDistances);
 
 function hover(e: CustomEvent) {
 	if (e.detail.x === -1) graph.removeTmpEdge();
@@ -41,40 +46,81 @@ let pathEnd = 0;
 let finder = undefined;
 function updateFinder() {
 	finder = findPath(distances, pathStart, pathEnd);
+	message = '';
+	graph.resetDistanceEdges();
+	graph.resetPathEdges();
+	graph.resetVisitedNodes();
+	graph.resetFound();
+	fireworks.stop();
+}
+
+let message = '';
+let fireworks: any;
+function handlePath(res: PathRes) {
+	if (!res.type) return;
+	switch (res.type) {
+		case 'distance':
+			message = `Computing distance between ${cities[res.current]} and ${cities[res.neighbor]}...`;
+			graph.addDistanceEdge(res.current, res.neighbor)
+			break;
+		case 'visited':
+			message = `Now we visited ${cities[res.current]} and we'll take the shortest unvisited distance.`;
+			graph.addVisitedNode(res.current);
+			graph.resetDistanceEdges();
+			break;
+		case 'found':
+			message = `We found ${cities[res.current]}!`;
+			graph.resetDistanceEdges();
+			graph.setFound(res.current);
+			break;
+		case 'path':
+			message = 'We explored all the best paths, now we will take the shortest one.';
+			graph.addPathEdge(res.previous, res.current);
+			break;
+		case 'done':
+			message = 'Good job everyone! We found the shortest path!';
+			fireworks.fire();
+			break;
+	}
 }
 </script>
 
 <main>
-	<div id="cy"></div>
+	<div id="cy" on:mouseup={updateDistances}/>
 	<div id="sidebar" class:show>
 		<div class="toggle-btn" on:click={() => {show = !show}}>
 			<ArrowLeft />
 		</div>
 		{#if show}
 			<Range bind:value={gridSize} min="2" max="10"/>
-			<div in:fly={{y:100, duration, delay:2*duration}} out:fade={{duration}} class="matrix-box">
+			<div in:fly={{y:100, duration, delay:duration}} out:fade={{duration}} class="matrix-box">
 				<Matrix bind:grid={grid} size={gridSize} on:hover={hover}/>
 			</div>
-			
-			<h2>Find path</h2>
-			<select bind:value={pathStart} on:change={updateFinder}>
-				{#each Array(gridSize) as _, i}
-					<option value={i}>{cities[i]}</option>
-				{/each}
-			</select>
-			->
-			<select bind:value={pathEnd} on:change={updateFinder}>
-				{#each Array(gridSize) as _, i}
-					<option value={i}>{cities[i]}</option>
-				{/each}
-			</select>
-			<button on:click={() => {
-				console.log(finder.next());
-			}}>Find path</button>
+			<div in:fly={{x: 100, duration, delay: 2*duration}} out:fade={{duration}}>
+				<h2>Find path</h2>
+				<div class="path">
+					<Select bind:value={pathStart} on:change={updateFinder}>
+						{#each Array(gridSize) as _, i}
+							<option value={i}>{cities[i]}</option>
+						{/each}
+					</Select>
+					->
+					<Select bind:value={pathEnd} on:change={updateFinder}>
+						{#each Array(gridSize) as _, i}
+							<option value={i}>{cities[i]}</option>
+						{/each}
+					</Select>
+				</div>
+				<Button disabled={pathStart === pathEnd} on:click={() => {
+					handlePath(finder.next().value);
+				}}>Next</Button>
+				<p>{message}</p>
+			</div>
+
 			<div class="result" in:fly={{y:100, duration, delay:3*duration}} out:fade={{duration}}>
 				{#each distances as row, source}
 					{#each row as cell, target}
-						{#if cell !== 0}
+						{#if cell !== Infinity}
 							{cities[source]} -> {cities[target]} : {cell} <br/>
 						{/if}
 					{/each}
@@ -82,6 +128,7 @@ function updateFinder() {
 			</div>
 		{/if}
 	</div>
+	<Fireworks bind:this={fireworks}/>
 </main>
 
 <style>
@@ -120,13 +167,21 @@ main, #cy {
 	transform: rotate(180deg);
 }
 
+.path {
+	display: flex;
+	justify-content: space-around;
+	align-items: center;
+}
+
 .result {
 	position: absolute;
-	bottom: 1em;
+	bottom: 1rem;
 	display: flex;
 	flex-direction: column;
+	margin: auto;
 	overflow-y: auto;
-	max-height: 50%;
+	max-height: 30%;
+	width: max-content;
 }
 .matrix-box {
 	margin: 1em auto;

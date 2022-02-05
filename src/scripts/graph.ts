@@ -7,7 +7,9 @@ export class Graph {
 	private nodes: Array<any> = [];
 	private edges: any;
 	private tmpEdge: any;
-	private path: Array<any> = [];
+
+	private distanceEdges: Array<any> = [];
+	private pathEdges: Array<any> = [];
 
 	constructor (private cities: Array<string>) {
 		this.cy = cytoscape({
@@ -42,12 +44,37 @@ export class Graph {
 					'text-background-padding': 6,
 				}
 			},
-
 			{
 				selector: 'edge[id = "tmp"]',
 				style: {
 					'line-color': '#3d8faf',
 					'target-arrow-color': '#1e5870',
+				}
+			},
+			{
+				selector: 'node[visited = 1]',
+				style: {
+					'background-color': '#3d8faf',
+				}
+			},
+			{
+				selector: 'edge[distance]',
+				style: {
+					'line-color': '#c14c28',
+					'target-arrow-color': '#992d0c',
+				}
+			},
+			{
+				selector: 'node[found = 1]',
+				style: {
+					'background-color': '#43a868',
+				}
+			},
+			{
+				selector: 'edge[path]',
+				style: {
+					'line-color': '#43a868',
+					'target-arrow-color': '#0c893a',
 				}
 			}
 			],
@@ -93,7 +120,7 @@ export class Graph {
 
 		const distances = [];
 		for (let i = 0; i < this.nodes.length; i++) {
-			distances[i] = Array(this.nodes.length).fill(0);
+			distances[i] = Array(this.nodes.length).fill(Infinity);
 		}
 		this.edges.forEach((edge, i) => {
 			const nodes = edge.connectedNodes();
@@ -121,9 +148,37 @@ export class Graph {
 	}
 
 	/* --- Path display --- */
-	public addPathStep(source: number, target: number): void {
-		this.path.push(this.cy.add(
-			{ group: 'edges', data: { id: 'p' + source + target, source: 'n' + source, target: 'n' + target } }
+	public addDistanceEdge(source: number, target: number): void {
+		this.distanceEdges.push(this.cy.add(
+			{ group: 'edges', data: { id: 'p' + source + target, source: 'n' + source, target: 'n' + target, distance: true } }
 		));
+	}
+	public resetDistanceEdges(): void {
+		this.distanceEdges.forEach(edge => edge.remove());
+		this.distanceEdges = [];
+	}
+
+	public addVisitedNode(node: number): void {
+		this.nodes[node].data('visited', 1);
+	}
+	public resetVisitedNodes(): void {
+		this.nodes.forEach(node => node.data('visited', 0));
+	}
+
+	public setFound(node: number): void {
+		this.nodes[node].data('found', 1);
+	}
+	public resetFound(): void {
+		this.nodes.forEach(node => node.data('found', 0));
+	}
+
+	public addPathEdge(source: number, target: number): void {
+		this.pathEdges.push(this.cy.add(
+			{ group: 'edges', data: { id: 'p' + source + target, source: 'n' + source, target: 'n' + target, path: true } }
+		));
+	}
+	public resetPathEdges(): void {
+		this.pathEdges.forEach(edge => edge.remove());
+		this.pathEdges = [];
 	}
 }

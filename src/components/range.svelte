@@ -48,14 +48,14 @@ input::-webkit-slider-thumb {
 	height: 2em;
 	transform: translateY(-0.9em);
 	border-radius: 50%;
-	background: #dd830d;
+	background: var(--color-primary);
 	cursor: pointer;
 }
 input::-webkit-slider-thumb:hover {
-	background: #fa930d;
+	filter: brightness(1.2);
 }
 input::-webkit-slider-thumb:active {
-	background: #a56006;
+	filter: brightness(.9);
 }
 input:focus {
 	box-shadow: 0 0 .5em #0003;
