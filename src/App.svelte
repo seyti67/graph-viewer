@@ -47,6 +47,7 @@ let finder = undefined;
 function updateFinder() {
 	finder = findPath(distances, pathStart, pathEnd);
 	message = '';
+	found = false;
 	graph.resetDistanceEdges();
 	graph.resetPathEdges();
 	graph.resetVisitedNodes();
@@ -56,6 +57,7 @@ function updateFinder() {
 
 let message = '';
 let fireworks: any;
+let found = false;
 function handlePath(res: PathRes) {
 	if (!res.type) return;
 	switch (res.type) {
@@ -79,6 +81,7 @@ function handlePath(res: PathRes) {
 			break;
 		case 'done':
 			message = 'Good job everyone! We found the shortest path!';
+			found = true;
 			fireworks.fire();
 			break;
 	}
@@ -111,7 +114,7 @@ function handlePath(res: PathRes) {
 						{/each}
 					</Select>
 				</div>
-				<Button disabled={pathStart === pathEnd} on:click={() => {
+				<Button disabled={pathStart === pathEnd || found} on:click={() => {
 					handlePath(finder.next().value);
 				}}>Next</Button>
 				<p>{message}</p>
