@@ -64,6 +64,7 @@ function updateFinder() {
 
 let message = '';
 let fireworks: any;
+let shaking = false;
 let found = false;
 function handlePath(res: PathRes) {
 	if (!res.type) return;
@@ -91,11 +92,19 @@ function handlePath(res: PathRes) {
 			found = true;
 			fireworks.fire();
 			break;
+		case 'unreachable':
+			message = `We can't reach the city! It might be Rome<sup>-1</sup> or something.`;
+			found = true; // yes, it does not make sense, but it's just for the sake of the animation
+			shaking = true;
+			setTimeout(() => {
+				shaking = false;
+			}, 1000);
+			break;
 	}
 }
 </script>
 
-<main>
+<main class:shaking>
 	<div id="cy" on:mouseup={updateDistances}/>
 	<div id="sidebar" class:show>
 		<div class="toggle-btn" on:click={() => {show = !show}}>
@@ -127,7 +136,7 @@ function handlePath(res: PathRes) {
 				<Button disabled={pathStart === pathEnd || found} on:click={() => {
 					handlePath(finder.next().value);
 				}}>Next</Button>
-				<p>{message}</p>
+				<p>{@html message}</p>
 			</div>
 
 			<div class="result" in:fly={{y:100, duration, delay:3*duration}} out:fade={{duration}}>
@@ -150,6 +159,23 @@ main, #cy {
 	width: 100%;
 }
 
+@keyframes shake {
+	0% { transform: translate(1px, 1px) rotate(0deg); }
+	10% { transform: translate(-1px, -2px) rotate(-1deg); }
+	20% { transform: translate(-3px, 0px) rotate(1deg); }
+	30% { transform: translate(3px, 2px) rotate(0deg); }
+	40% { transform: translate(1px, -1px) rotate(1deg); }
+	50% { transform: translate(-1px, 2px) rotate(-1deg); }
+	60% { transform: translate(-3px, 1px) rotate(0deg); }
+	70% { transform: translate(3px, 1px) rotate(-1deg); }
+	80% { transform: translate(-1px, -1px) rotate(1deg); }
+	90% { transform: translate(1px, 2px) rotate(0deg); }
+	100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+.shaking {
+	animation: shake .5s infinite;
+}
+
 #sidebar {
 	position: fixed;
 	top: 0;
@@ -162,6 +188,7 @@ main, #cy {
 	height: 100%;
 	transform: translateX(calc(100% - 4em));
 	transition: .3s transform;
+	overflow-y: auto;
 }
 #sidebar.show {
 	transform: translateX(0);
@@ -187,11 +214,9 @@ main, #cy {
 }
 
 .result {
-	position: absolute;
-	bottom: 1rem;
 	display: flex;
 	flex-direction: column;
-	margin: auto;
+	margin: 2em auto;
 	overflow-y: auto;
 	max-height: 30%;
 	width: max-content;
@@ -199,5 +224,11 @@ main, #cy {
 .matrix-box {
 	margin: 1em auto;
 	width: min-content;
+}
+
+@media (max-width: 600px) {
+	#sidebar {
+		width: 100%;
+	}
 }
 </style>

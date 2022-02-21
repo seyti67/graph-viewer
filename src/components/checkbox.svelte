@@ -1,13 +1,18 @@
 <script>
+export let disabled = false;
 export let checked = false;
 </script>
 
-<label>
+<label class:disabled>
 	<input type="checkbox" on:change bind:checked={checked}/>
 	<div class="box"></div>
 </label>
 
 <style>
+label.disabled {
+	pointer-events: none;
+	filter: grayscale(90%);
+}
 input {
 	display: none;
 }

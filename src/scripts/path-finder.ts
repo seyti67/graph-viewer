@@ -1,5 +1,5 @@
 export interface PathRes {
-	type: 'distance' | 'visited' | 'found' | 'path' | 'done';
+	type: 'distance' | 'visited' | 'found' | 'path' | 'done' | 'unreachable';
 	current: number;
 	neighbor?: number;
 	previous?: number;
@@ -16,7 +16,20 @@ export function *findPath(matrix: number[][], start: number, end: number): Itera
 	let current = start;
 	while (unvisited.length > 0) {
 		// find the closest unvisited node
-		current = unvisited.reduce((min, i) => distances[i][0] < distances[min][0] ? i : min, unvisited[0]);
+		let min = Infinity;
+		let minIndex = 0;
+		for (let i = 0; i < unvisited.length; i++) {
+			const d = distances[unvisited[i]][0];
+			if (d < min) {
+				min = d;
+				minIndex = i;
+			}
+		}
+		if (min === Infinity) { // no path found
+			return { type: 'unreachable' };
+		}
+		current = unvisited[minIndex];
+
 
 		if (current === end) {
 			yield {
